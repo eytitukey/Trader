@@ -305,7 +305,7 @@ def scan(symbole, krypto=False):
             else:
                 print(f"   ⏳ HALTEN | G&V: {pct:+.1f}%")
 
-        elif kauf_score >= 3:
+        elif kauf_score >= 5:
             sl, tp = kaufen(symbol, kurs)
             zeile = (
                 f"🟢 <b>{symbol}</b> – {kauf_score}/7 KAUFEN {sterne(kauf_score)}\n"
@@ -316,7 +316,7 @@ def scan(symbole, krypto=False):
                 zeile += f"   {emoji} {ind}: {sig} ({detail})\n"
             starke_kaufsignale.append(zeile)
 
-        elif verkauf_score >= 3 and position:
+        elif verkauf_score >= 5 and position:
             verkaufen(symbol)
             zeile = (
                 f"🔴 <b>{symbol}</b> – {verkauf_score}/7 VERKAUFEN {sterne(verkauf_score)}\n"
@@ -330,6 +330,77 @@ def scan(symbole, krypto=False):
         time.sleep(0.3)
 
     return starke_kaufsignale, starke_verkaufsignale
+
+# ─────────────────────────────────────────
+# MARKTÜBERSICHT
+# ─────────────────────────────────────────
+MARKT_ASSETS = {
+    "SPY":     ("📈", "S&P 500",      False),
+    "QQQ":     ("💻", "Nasdaq 100",   False),
+    "DIA":     ("🏦", "Dow Jones",    False),
+    "IWM":     ("🏢", "Russell 2000", False),
+    "GLD":     ("🥇", "Gold",         False),
+    "USO":     ("🛢️", "Öl (WTI)",    False),
+    "UUP":     ("💵", "USD Index",    False),
+    "BTC/USD": ("₿",  "Bitcoin",      True),
+}
+
+def berechne_support_resistance(bars, periode=20):
+    recent = bars[-periode:]
+    support    = round(min(bar.low   for bar in recent), 2)
+    resistance = round(max(bar.high  for bar in recent), 2)
+    return support, resistance
+
+def signal_emoji(kauf, verkauf):
+    if kauf >= 5:   return "🟢 KAUFEN"
+    if verkauf >= 5: return "🔴 VERKAUFEN"
+    if kauf >= 3:   return "🟡 NEUTRAL+"
+    return "⏳ NEUTRAL"
+
+def markt_uebersicht():
+    print("\n" + "="*45)
+    print(f"🌍 MARKTÜBERSICHT – {datetime.now().strftime('%H:%M:%S')}")
+    print("="*45)
+
+    nachricht = f"🌍 <b>MARKTÜBERSICHT</b> – {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+    nachricht += "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+
+    abschnitte = {
+        "📈 BÖRSENINDIZES": ["SPY", "QQQ", "DIA", "IWM"],
+        "🛍️ ROHSTOFFE & FX": ["GLD", "USO", "UUP"],
+        "₿ KRYPTO": ["BTC/USD"],
+    }
+
+    for titel, symbole in abschnitte.items():
+        nachricht += f"\n<b>{titel}</b>\n"
+        for symbol in symbole:
+            emoji, name, krypto = MARKT_ASSETS[symbol]
+            bars = get_kursdaten(symbol, krypto)
+
+            if bars is None or len(bars) < 50:
+                nachricht += f"{emoji} {name}: ⚠️ Keine Daten\n"
+                continue
+
+            kurs = bars[-1].close
+            rsi  = berechne_rsi(bars, RSI_PERIODE)
+            signale, _ = berechne_signale(bars)
+            kauf_score, verkauf_score = confluence_score(signale)
+            support, resistance = berechne_support_resistance(bars)
+            trend = berechne_trend(bars)
+            signal = signal_emoji(kauf_score, verkauf_score)
+
+            print(f"{emoji} {name}: ${kurs:.2f} | RSI {rsi} | {signal}")
+
+            nachricht += (
+                f"{emoji} <b>{name}</b>: ${kurs:.2f}\n"
+                f"   RSI: {rsi} | Trend: {'📈' if trend else '📉'} | {signal}\n"
+                f"   🛡️ Support: ${support} | 🎯 Resist: ${resistance}\n"
+            )
+
+        nachricht += "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+
+    sende_telegram(nachricht)
+    print("📱 Marktübersicht gesendet!")
 
 # ─────────────────────────────────────────
 # AUSFÜHREN
@@ -370,5 +441,9 @@ def main():
 # Hauptschleife
 while True:
     main()
-    print("\n⏳ Nächster Scan in 60 Minuten...")
-    time.sleep(3600)
+    print("\n⏳ Marktübersicht in 15 Minuten...")
+    time.sleep(900)
+    markt_uebersicht()
+    print("\n⏳ Nächster Scan in 45 Minuten...")
+    time.sleep(2700)
+
