@@ -17,6 +17,8 @@ SECRET_KEY = os.environ.get("ALPACA_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT")
 OPENAI_KEY = os.environ.get("OPENAI_KEY")
+NEWS_API_KEY = os.environ.get("NEWS_KEY")
+
 
 trading_client = TradingClient(API_KEY, SECRET_KEY, paper=True)
 data_client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
@@ -90,20 +92,45 @@ def speichere_ergebnisse(ergebnisse):
 # ─────────────────────────────────────────
 # NEWS & SENTIMENT
 # ─────────────────────────────────────────
+NEWS_API_KEY = os.environ.get("NEWS_KEY")
+
+NEWS_SYMBOLE = [
+    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN",
+    "META", "TSLA", "JPM", "BTC/USD", "ETH/USD"
+]
+
+
 def get_news(symbol, limit=5):
-    try:
-        # Krypto Symbol anpassen
-        clean_symbol = symbol.replace("/USD", "")
-        request = NewsRequest(
-            symbols=[clean_symbol],
-            limit=limit,
-            start=datetime.now() - timedelta(hours=24)
-        )
-        news = news_client.get_news(request)
-        headlines = [n.headline for n in news.news if n.headline]
-        return headlines[:5]
-    except:
+    if symbol not in NEWS_SYMBOLE:
         return []
+    try:
+        clean = symbol.replace("/USD", "")
+        url = (
+            f"https://newsapi.org/v2/everything"
+            f"?q={clean}+stock"
+            f"&language=en"
+            f"&sortBy=publishedAt"
+            f"&pageSize={limit}"
+            f"&apiKey={NEWS_API_KEY}"
+        )
+        r = requests.get(url, timeout=5)
+        data = r.json()
+
+        if data.get("status") != "ok":
+            print(f"   ⚠️ NewsAPI: {data.get('message')}")
+            return []
+
+        headlines = [
+            a["title"] for a in data.get("articles", [])
+            if a.get("title") and "[Removed]" not in a["title"]
+        ]
+        print(f"   📰 {len(headlines)} Headlines gefunden")
+        return headlines[:5]
+
+    except Exception as e:
+        print(f"   ⚠️ News Fehler: {e}")
+        return []
+
 
 def analysiere_sentiment(symbol, headlines):
     if not headlines:
