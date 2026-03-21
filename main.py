@@ -1,3 +1,6 @@
+import os
+import requests
+import time
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
@@ -5,8 +8,6 @@ from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDa
 from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from datetime import datetime, timedelta
-import requests
-import time
 
 
 API_KEY = os.environ.get("ALPACA_KEY")
