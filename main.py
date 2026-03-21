@@ -8,6 +8,8 @@ from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDa
 from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from datetime import datetime, timedelta
+import json
+
 
 
 API_KEY = os.environ.get("ALPACA_KEY")
@@ -62,6 +64,11 @@ def sende_telegram(nachricht):
         requests.post(url, data=data)
     except:
         print("⚠️ Telegram Fehler")
+
+#Dahboard
+def speichere_ergebnisse(ergebnisse):
+    with open("docs/data.json", "w") as f:
+        json.dump(ergebnisse, f)
 
 # ─────────────────────────────────────────
 # KURSDATEN
@@ -462,4 +469,13 @@ while True:
     markt_uebersicht()
     print("\n⏳ Nächster Scan in 45 Minuten...")
     time.sleep(2700)
+
+ergebnisse = {
+    "zeitpunkt": datetime.now().strftime("%d.%m.%Y %H:%M"),
+    "portfolio": account.portfolio_value,
+    "kontostand": account.cash,
+    "kaufsignale": kauf_aktien + kauf_krypto,
+    "verkaufsignale": verkauf_aktien + verkauf_krypto
+}
+speichere_ergebnisse(ergebnisse)
 
