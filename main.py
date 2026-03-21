@@ -415,7 +415,6 @@ def markt_uebersicht():
 def main():
     kauf_aktien, verkauf_aktien = scan(AKTIEN, krypto=False)
     kauf_krypto, verkauf_krypto = scan(KRYPTOS, krypto=True)
-
     account = trading_client.get_account()
 
     nachricht = f"📊 <b>SCAN ABGESCHLOSSEN</b> – {datetime.now().strftime('%H:%M:%S')}\n\n"
@@ -423,15 +422,12 @@ def main():
     if kauf_aktien:
         nachricht += "🟢 <b>STARKE KAUFSIGNALE – AKTIEN</b>\n"
         nachricht += "\n".join(kauf_aktien)
-
     if kauf_krypto:
         nachricht += "\n🟢 <b>STARKE KAUFSIGNALE – KRYPTO</b>\n"
         nachricht += "\n".join(kauf_krypto)
-
     if verkauf_aktien or verkauf_krypto:
         nachricht += "\n🔴 <b>VERKAUFSSIGNALE</b>\n"
         nachricht += "\n".join(verkauf_aktien + verkauf_krypto)
-
     if not kauf_aktien and not kauf_krypto and not verkauf_aktien and not verkauf_krypto:
         nachricht += "⏳ Keine starken Signale gefunden\n"
 
@@ -461,21 +457,16 @@ def main():
 
     sende_telegram(nachricht)
 
-# Hauptschleife
-while True:
-    main()
-    print("\n⏳ Marktübersicht in 15 Minuten...")
-    time.sleep(900)
-    markt_uebersicht()
-    print("\n⏳ Nächster Scan in 45 Minuten...")
-    time.sleep(2700)
+    # Ergebnisse für Website speichern
+    ergebnisse = {
+        "zeitpunkt": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "portfolio": str(account.portfolio_value),
+        "kontostand": str(account.cash),
+        "kaufsignale": kauf_aktien + kauf_krypto,
+        "verkaufsignale": verkauf_aktien + verkauf_krypto
+    }
+    speichere_ergebnisse(ergebnisse)
 
-ergebnisse = {
-    "zeitpunkt": datetime.now().strftime("%d.%m.%Y %H:%M"),
-    "portfolio": account.portfolio_value,
-    "kontostand": account.cash,
-    "kaufsignale": kauf_aktien + kauf_krypto,
-    "verkaufsignale": verkauf_aktien + verkauf_krypto
-}
-speichere_ergebnisse(ergebnisse)
+# Einmal ausführen und fertig!
+main()
 
