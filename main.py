@@ -34,7 +34,7 @@ AKTIEN = [
     "BAC", "CRM", "ORCL", "CVX", "MRK",
     "AMD", "KO", "PEP", "TMO", "ACN",
     "CSCO", "LIN", "MCD", "ABT", "IBM",
-    "GE", "NOW", "ISRG", "GS", "TXN",
+    "GE", "NOW", "ISRG", "GS", "TXN", "PYPL", 
     "QCOM", "INTU", "SPGI", "BKNG", "RTX",
     "CAT", "DHR", "AMGN", "BLK", "SPY"
 ]
