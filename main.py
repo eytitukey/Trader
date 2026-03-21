@@ -96,7 +96,7 @@ NEWS_API_KEY = os.environ.get("NEWS_KEY")
 
 NEWS_SYMBOLE = [
     "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN",
-    "META", "TSLA", "JPM", "BTC/USD", "ETH/USD"
+    "META", "TSLA", "JPM", "BTC/USD", "ETH/USD", "PYPL"
 ]
 
 
