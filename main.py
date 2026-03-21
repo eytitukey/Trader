@@ -428,8 +428,24 @@ def main():
     if not kauf_aktien and not kauf_krypto and not verkauf_aktien and not verkauf_krypto:
         nachricht += "⏳ Keine starken Signale gefunden\n"
 
-    nachricht += f"\n💰 Kontostand: ${account.cash}"
-    nachricht += f"\n📈 Portfolio: ${account.portfolio_value}"
+    nachricht += f"\n💰 Kontostand: ${float(account.cash):,.2f}"
+    nachricht += f"\n📈 Portfolio: ${float(account.portfolio_value):,.2f}"
+
+    positionen = trading_client.get_all_positions()
+    if positionen:
+        nachricht += "\n\n📦 <b>MEIN BESTAND</b>\n"
+        for pos in positionen:
+            pl = float(pos.unrealized_pl)
+            pl_pct = float(pos.unrealized_plpc) * 100
+            pl_emoji = "🟢" if pl >= 0 else "🔴"
+            nachricht += (
+                f"{pl_emoji} <b>{pos.symbol}</b>: {pos.qty} Stk.\n"
+                f"   Ø Kaufpreis: ${float(pos.avg_entry_price):.2f} | "
+                f"Kurs: ${float(pos.current_price):.2f}\n"
+                f"   G&V: {pl_emoji} ${pl:+.2f} ({pl_pct:+.2f}%)\n"
+            )
+    else:
+        nachricht += "\n\n📦 <b>MEIN BESTAND</b>\nKeine offenen Positionen"
 
     print("\n" + "="*45)
     print("TELEGRAM ZUSAMMENFASSUNG:")
