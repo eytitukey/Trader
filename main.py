@@ -305,7 +305,7 @@ def scan(symbole, krypto=False):
             else:
                 print(f"   ⏳ HALTEN | G&V: {pct:+.1f}%")
 
-        elif kauf_score >= 5:
+        elif kauf_score >= 3:
             sl, tp = kaufen(symbol, kurs)
             zeile = (
                 f"🟢 <b>{symbol}</b> – {kauf_score}/7 KAUFEN {sterne(kauf_score)}\n"
@@ -316,7 +316,7 @@ def scan(symbole, krypto=False):
                 zeile += f"   {emoji} {ind}: {sig} ({detail})\n"
             starke_kaufsignale.append(zeile)
 
-        elif verkauf_score >= 5 and position:
+        elif verkauf_score >= 3 and position:
             verkaufen(symbol)
             zeile = (
                 f"🔴 <b>{symbol}</b> – {verkauf_score}/7 VERKAUFEN {sterne(verkauf_score)}\n"
