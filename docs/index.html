@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Bot Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            padding: 20px;
+        }
+        h1 { color: #58a6ff; margin-bottom: 5px; }
+        .zeit { color: #8b949e; margin-bottom: 30px; }
+        .karten {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .karte {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 10px;
+            padding: 20px;
+        }
+        .karte h3 { color: #8b949e; font-size: 12px; margin-bottom: 8px; }
+        .karte p { font-size: 24px; font-weight: bold; }
+        .gruen { color: #3fb950; }
+        .rot { color: #f85149; }
+        .signal {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 10px;
+        }
+        .signal h3 { color: #8b949e; font-size: 12px; margin-bottom: 10px; }
+        .tag {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 13px;
+            margin: 3px;
+        }
+        .tag-kauf { background: #1a4a2e; color: #3fb950; }
+        .tag-verkauf { background: #4a1a1a; color: #f85149; }
+        .leer { color: #8b949e; font-style: italic; }
+        .refresh {
+            text-align: center;
+            margin-top: 30px;
+            color: #8b949e;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <h1>📊 Trading Bot Dashboard</h1>
+    <p class="zeit" id="zeit">Lädt...</p>
+
+    <div class="karten">
+        <div class="karte">
+            <h3>KONTOSTAND</h3>
+            <p class="gruen" id="kontostand">–</p>
+        </div>
+        <div class="karte">
+            <h3>PORTFOLIO WERT</h3>
+            <p id="portfolio">–</p>
+        </div>
+        <div class="karte">
+            <h3>KAUFSIGNALE</h3>
+            <p class="gruen" id="kauf-anzahl">–</p>
+        </div>
+        <div class="karte">
+            <h3>VERKAUFSSIGNALE</h3>
+            <p class="rot" id="verkauf-anzahl">–</p>
+        </div>
+    </div>
+
+    <div class="signal">
+        <h3>🟢 KAUFSIGNALE</h3>
+        <div id="kaufsignale"><p class="leer">Lädt...</p></div>
+    </div>
+
+    <div class="signal">
+        <h3>🔴 VERKAUFSSIGNALE</h3>
+        <div id="verkaufsignale"><p class="leer">Lädt...</p></div>
+    </div>
+
+    <div class="refresh">
+        Aktualisiert sich automatisch alle 5 Minuten
+    </div>
+
+    <script>
+        async function ladeDaten() {
+            try {
+                const response = await fetch('data.json?t=' + Date.now());
+                const data = await response.json();
+
+                document.getElementById('zeit').textContent = 'Letzter Scan: ' + data.zeitpunkt;
+                document.getElementById('kontostand').textContent = '$' + parseFloat(data.kontostand).toFixed(2);
+                document.getElementById('portfolio').textContent = '$' + parseFloat(data.portfolio).toFixed(2);
+                document.getElementById('kauf-anzahl').textContent = data.kaufsignale.length;
+                document.getElementById('verkauf-anzahl').textContent = data.verkaufsignale.length;
+
+                // Kaufsignale
+                const kaufDiv = document.getElementById('kaufsignale');
+                if (data.kaufsignale.length === 0) {
+                    kaufDiv.innerHTML = '<p class="leer">Keine Kaufsignale</p>';
+                } else {
+                    kaufDiv.innerHTML = data.kaufsignale
+                        .map(s => `<span class="tag tag-kauf">${s}</span>`)
+                        .join('');
+                }
+
+                // Verkaufssignale
+                const verkaufDiv = document.getElementById('verkaufsignale');
+                if (data.verkaufsignale.length === 0) {
+                    verkaufDiv.innerHTML = '<p class="leer">Keine Verkaufssignale</p>';
+                } else {
+                    verkaufDiv.innerHTML = data.verkaufsignale
+                        .map(s => `<span class="tag tag-verkauf">${s}</span>`)
+                        .join('');
+                }
+
+            } catch(e) {
+                document.getElementById('zeit').textContent = 'Fehler beim Laden der Daten';
+            }
+        }
+
+        ladeDaten();
+        setInterval(ladeDaten, 300000); // alle 5 Minuten
+    </script>
+</body>
+</html>
+```
+
+---
+
+## Schritt 3: GitHub Pages aktivieren
+
+1. Repository → **Settings**
+2. Links → **Pages**
+3. Source → **Deploy from a branch**
+4. Branch → **main** → Ordner → **/docs**
+5. **Save**
+
+Nach 2 Minuten ist deine Website live unter:
+```
+https://DEIN-USERNAME.github.io/trading-bot
