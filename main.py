@@ -194,6 +194,133 @@ def berechne_support_resistance(bars, periode=20):
     return support, resistance
 
 # ─────────────────────────────────────────
+# KORRELATION
+# ─────────────────────────────────────────
+def berechne_korrelation(bars1, bars2, tage=30):
+    try:
+        preise1 = [bar.close for bar in bars1[-tage:]]
+        preise2 = [bar.close for bar in bars2[-tage:]]
+        n = min(len(preise1), len(preise2))
+        preise1 = preise1[-n:]
+        preise2 = preise2[-n:]
+        mean1 = sum(preise1) / n
+        mean2 = sum(preise2) / n
+        zaehler = sum((preise1[i] - mean1) * (preise2[i] - mean2) for i in range(n))
+        nenner1 = (sum((p - mean1) ** 2 for p in preise1)) ** 0.5
+        nenner2 = (sum((p - mean2) ** 2 for p in preise2)) ** 0.5
+        if nenner1 * nenner2 == 0:
+            return 0
+        return round(zaehler / (nenner1 * nenner2), 2)
+    except:
+        return 0
+
+def korrelation_label(k):
+    if k >= 0.7:   return "🟢 Stark positiv"
+    if k >= 0.4:   return "🟡 Mittel positiv"
+    if k >= 0.1:   return "⬜ Schwach positiv"
+    if k >= -0.1:  return "⬜ Neutral"
+    if k >= -0.4:  return "🟡 Schwach negativ"
+    if k >= -0.7:  return "🟠 Mittel negativ"
+    return "🔴 Stark negativ"
+
+def erkenne_markt_regime(bars_dict):
+    regime = []
+    empfehlungen = []
+    warnungen = []
+
+    # S&P500 Trend
+    if "SPY" in bars_dict and bars_dict["SPY"]:
+        spy_trend = berechne_trend(bars_dict["SPY"])
+        spy_rsi = berechne_rsi(bars_dict["SPY"])
+        if spy_trend and spy_rsi < 65:
+            regime.append("📈 Bullish Aktienmarkt")
+            empfehlungen.append("✅ Gutes Umfeld für Aktien-Käufe")
+        elif not spy_trend:
+            regime.append("📉 Bearish Aktienmarkt")
+            empfehlungen.append("⚠️ Vorsicht bei Aktien-Käufen")
+
+    # USD Stärke
+    if "UUP" in bars_dict and bars_dict["UUP"]:
+        uup_kurs = bars_dict["UUP"][-1].close
+        uup_ma = berechne_ma(bars_dict["UUP"], 20)
+        usd_stark = uup_kurs > uup_ma
+        if usd_stark:
+            regime.append("💵 USD stark")
+            empfehlungen.append("⚠️ USD stark → Druck auf Gold & BTC")
+        else:
+            regime.append("💵 USD schwach")
+            empfehlungen.append("✅ USD schwach → Rückenwind für Gold & BTC")
+
+    # Gold Signal
+    if "GLD" in bars_dict and bars_dict["GLD"]:
+        gld_trend = berechne_trend(bars_dict["GLD"])
+        if gld_trend:
+            regime.append("🥇 Gold im Aufwärtstrend")
+            empfehlungen.append("⚠️ Gold steigt → Risikoaversion im Markt")
+
+    # Öl Signal
+    if "USO" in bars_dict and bars_dict["USO"]:
+        uso_trend = berechne_trend(bars_dict["USO"])
+        uso_rsi = berechne_rsi(bars_dict["USO"])
+        if uso_trend and uso_rsi > 60:
+            regime.append("🛢️ Öl überkauft")
+            empfehlungen.append("⚠️ Öl stark → Inflationsdruck steigt")
+
+    # BTC Dominanz
+    if "BTC/USD" in bars_dict and bars_dict["BTC/USD"]:
+        btc_trend = berechne_trend(bars_dict["BTC/USD"])
+        if btc_trend:
+            regime.append("₿ BTC im Aufwärtstrend")
+            empfehlungen.append("✅ BTC bullish → Altcoins könnten folgen")
+        else:
+            regime.append("₿ BTC im Abwärtstrend")
+            empfehlungen.append("⚠️ BTC bearish → Vorsicht bei Altcoins")
+
+    # Korrelations-Warnungen
+    if "SPY" in bars_dict and "BTC/USD" in bars_dict and bars_dict["SPY"] and bars_dict["BTC/USD"]:
+        korr = berechne_korrelation(bars_dict["SPY"], bars_dict["BTC/USD"])
+        if korr < -0.5:
+            warnungen.append(f"🚨 BTC läuft gegen S&P500 (Korr: {korr}) – ungewöhnlich!")
+        elif korr > 0.8:
+            warnungen.append(f"📊 BTC & S&P500 sehr synchron (Korr: {korr})")
+
+    if "GLD" in bars_dict and "UUP" in bars_dict and bars_dict["GLD"] and bars_dict["UUP"]:
+        korr = berechne_korrelation(bars_dict["GLD"], bars_dict["UUP"])
+        if korr > 0.4:
+            warnungen.append(f"🚨 Gold & USD steigen zusammen (Korr: {korr}) – Krisenzeichen!")
+
+    if "USO" in bars_dict and "GLD" in bars_dict and bars_dict["USO"] and bars_dict["GLD"]:
+        korr = berechne_korrelation(bars_dict["USO"], bars_dict["GLD"])
+        if korr > 0.6:
+            warnungen.append(f"⚠️ Öl & Gold korrelieren stark (Korr: {korr}) – Inflationsdruck!")
+
+    return regime, empfehlungen, warnungen
+
+def korrelations_analyse(bars_dict):
+    paare = [
+        ("SPY",     "BTC/USD", "S&P500 ↔ BTC"),
+        ("SPY",     "GLD",     "S&P500 ↔ Gold"),
+        ("GLD",     "UUP",     "Gold ↔ USD"),
+        ("UUP",     "BTC/USD", "USD ↔ BTC"),
+        ("USO",     "GLD",     "Öl ↔ Gold"),
+        ("USO",     "SPY",     "Öl ↔ S&P500"),
+        ("BTC/USD", "ETH/USD", "BTC ↔ ETH"),
+        ("QQQ",     "BTC/USD", "Nasdaq ↔ BTC"),
+    ]
+
+    ergebnisse = []
+    for sym1, sym2, label in paare:
+        if sym1 in bars_dict and sym2 in bars_dict:
+            if bars_dict[sym1] and bars_dict[sym2]:
+                k = berechne_korrelation(bars_dict[sym1], bars_dict[sym2])
+                ergebnisse.append({
+                    "label": label,
+                    "korrelation": k,
+                    "beschreibung": korrelation_label(k)
+                })
+    return ergebnisse
+
+# ─────────────────────────────────────────
 # SIGNAL BERECHNUNG
 # ─────────────────────────────────────────
 def berechne_signale(bars):
@@ -370,6 +497,22 @@ def markt_uebersicht():
     print(f"🌍 MARKTÜBERSICHT – {datetime.now().strftime('%H:%M:%S')}")
     print("="*45)
 
+    markt_liste = []
+    bars_dict = {}
+
+    # Alle Markt-Kursdaten laden
+    for symbol, (emoji, name, krypto) in MARKT_ASSETS.items():
+        bars = get_kursdaten(symbol, krypto)
+        bars_dict[symbol] = bars
+
+    # Für Korrelation ETH auch laden
+    bars_dict["ETH/USD"] = get_kursdaten("ETH/USD", krypto=True)
+
+    # Markt Regime & Korrelationen berechnen
+    regime, empfehlungen, warnungen = erkenne_markt_regime(bars_dict)
+    korrelationen = korrelations_analyse(bars_dict)
+
+    # Telegram Marktübersicht
     nachricht = f"🌍 <b>MARKTÜBERSICHT</b> – {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
     nachricht += "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
@@ -379,13 +522,11 @@ def markt_uebersicht():
         "₿ KRYPTO": ["BTC/USD"],
     }
 
-    markt_liste = []
-
     for titel, symbole in abschnitte.items():
         nachricht += f"\n<b>{titel}</b>\n"
         for symbol in symbole:
             emoji, name, krypto = MARKT_ASSETS[symbol]
-            bars = get_kursdaten(symbol, krypto)
+            bars = bars_dict.get(symbol)
 
             if bars is None or len(bars) < 50:
                 nachricht += f"{emoji} {name}: ⚠️ Keine Daten\n"
@@ -421,10 +562,31 @@ def markt_uebersicht():
 
         nachricht += "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
+    # Markt Regime
+    nachricht += "\n🌡️ <b>MARKTREGIME</b>\n"
+    for r in regime:
+        nachricht += f"  {r}\n"
+
+    # Warnungen
+    if warnungen:
+        nachricht += "\n🚨 <b>WARNUNGEN</b>\n"
+        for w in warnungen:
+            nachricht += f"  {w}\n"
+
+    # Empfehlungen
+    nachricht += "\n💡 <b>EMPFEHLUNGEN</b>\n"
+    for e in empfehlungen:
+        nachricht += f"  {e}\n"
+
+    # Korrelationen
+    nachricht += "\n🔗 <b>KORRELATIONEN (30 Tage)</b>\n"
+    for k in korrelationen:
+        nachricht += f"  {k['label']}: {k['korrelation']} {k['beschreibung']}\n"
+
     sende_telegram(nachricht)
     print("📱 Marktübersicht gesendet!")
 
-    return markt_liste
+    return markt_liste, regime, empfehlungen, warnungen, korrelationen
 
 # ─────────────────────────────────────────
 # MAIN
@@ -432,7 +594,7 @@ def markt_uebersicht():
 def main():
     kauf_aktien, verkauf_aktien = scan(AKTIEN, krypto=False)
     kauf_krypto, verkauf_krypto = scan(KRYPTOS, krypto=True)
-    markt_liste = markt_uebersicht()
+    markt_liste, regime, empfehlungen, warnungen, korrelationen = markt_uebersicht()
     account = trading_client.get_account()
 
     nachricht = f"📊 <b>SCAN ABGESCHLOSSEN</b> – {datetime.now().strftime('%H:%M:%S')}\n\n"
@@ -496,7 +658,11 @@ def main():
         "kaufsignale": kauf_aktien + kauf_krypto,
         "verkaufsignale": verkauf_aktien + verkauf_krypto,
         "positionen": positionen_liste,
-        "markt": markt_liste
+        "markt": markt_liste,
+        "regime": regime,
+        "empfehlungen": empfehlungen,
+        "warnungen": warnungen,
+        "korrelationen": korrelationen
     }
     speichere_ergebnisse(ergebnisse)
 
