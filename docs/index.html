@@ -7,131 +7,224 @@
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: -apple-system, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             background: #0d1117;
             color: #e6edf3;
-            padding: 20px;
+            padding: 16px;
+            max-width: 900px;
+            margin: 0 auto;
         }
-        h1 { color: #58a6ff; margin-bottom: 5px; }
-        .zeit { color: #8b949e; margin-bottom: 30px; }
+        h1 { color: #58a6ff; font-size: 22px; margin-bottom: 4px; }
+        .zeit { color: #8b949e; font-size: 13px; margin-bottom: 20px; }
+        h2 { font-size: 14px; color: #8b949e; text-transform: uppercase;
+             letter-spacing: 1px; margin: 24px 0 12px; }
         .karten {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 30px;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 8px;
         }
         .karte {
             background: #161b22;
             border: 1px solid #30363d;
             border-radius: 10px;
-            padding: 20px;
+            padding: 16px;
         }
-        .karte h3 { color: #8b949e; font-size: 12px; margin-bottom: 8px; }
-        .karte p { font-size: 24px; font-weight: bold; }
+        .karte h3 { color: #8b949e; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; }
+        .karte p { font-size: 22px; font-weight: bold; }
         .gruen { color: #3fb950; }
         .rot { color: #f85149; }
-        .signal {
+        .grau { color: #8b949e; }
+        .box {
             background: #161b22;
             border: 1px solid #30363d;
             border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 10px;
+            padding: 16px;
+            margin-bottom: 12px;
         }
-        .signal h3 { color: #8b949e; font-size: 12px; margin-bottom: 10px; }
+        .box-titel {
+            font-size: 13px;
+            font-weight: bold;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #30363d;
+        }
+        .signal-item {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 8px;
+            font-size: 13px;
+            line-height: 1.6;
+        }
         .tag {
             display: inline-block;
-            padding: 4px 10px;
+            padding: 3px 10px;
             border-radius: 20px;
-            font-size: 13px;
-            margin: 3px;
+            font-size: 12px;
+            margin: 2px;
+            font-weight: bold;
         }
         .tag-kauf { background: #1a4a2e; color: #3fb950; }
         .tag-verkauf { background: #4a1a1a; color: #f85149; }
-        .leer { color: #8b949e; font-style: italic; }
-        .refresh {
-            text-align: center;
-            margin-top: 30px;
-            color: #8b949e;
-            font-size: 13px;
+        .leer { color: #8b949e; font-style: italic; font-size: 13px; }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { color: #8b949e; text-align: left; padding: 6px 8px;
+             border-bottom: 1px solid #30363d; font-weight: normal; font-size: 11px; text-transform: uppercase; }
+        td { padding: 8px; border-bottom: 1px solid #21262d; }
+        tr:last-child td { border-bottom: none; }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
         }
+        .badge-gruen { background: #1a4a2e; color: #3fb950; }
+        .badge-rot { background: #4a1a1a; color: #f85149; }
+        .refresh-btn {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #e6edf3;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-top: 20px;
+        }
+        .footer { text-align: center; color: #8b949e; font-size: 12px; margin-top: 24px; padding-bottom: 20px; }
     </style>
 </head>
 <body>
+
     <h1>📊 Trading Bot Dashboard</h1>
     <p class="zeit" id="zeit">Lädt...</p>
 
+    <!-- ÜBERSICHT -->
     <div class="karten">
         <div class="karte">
-            <h3>KONTOSTAND</h3>
+            <h3>💰 Kontostand</h3>
             <p class="gruen" id="kontostand">–</p>
         </div>
         <div class="karte">
-            <h3>PORTFOLIO WERT</h3>
+            <h3>📈 Portfolio</h3>
             <p id="portfolio">–</p>
         </div>
         <div class="karte">
-            <h3>KAUFSIGNALE</h3>
+            <h3>🟢 Kaufsignale</h3>
             <p class="gruen" id="kauf-anzahl">–</p>
         </div>
         <div class="karte">
-            <h3>VERKAUFSSIGNALE</h3>
+            <h3>🔴 Verkaufssignale</h3>
             <p class="rot" id="verkauf-anzahl">–</p>
+        </div>
+        <div class="karte">
+            <h3>📦 Positionen</h3>
+            <p id="pos-anzahl">–</p>
         </div>
     </div>
 
-    <div class="signal">
-        <h3>🟢 KAUFSIGNALE</h3>
+    <!-- KAUFSIGNALE -->
+    <h2>🟢 Kaufsignale</h2>
+    <div class="box">
         <div id="kaufsignale"><p class="leer">Lädt...</p></div>
     </div>
 
-    <div class="signal">
-        <h3>🔴 VERKAUFSSIGNALE</h3>
+    <!-- VERKAUFSSIGNALE -->
+    <h2>🔴 Verkaufssignale</h2>
+    <div class="box">
         <div id="verkaufsignale"><p class="leer">Lädt...</p></div>
     </div>
 
-    <div class="refresh">
-        Aktualisiert sich automatisch alle 5 Minuten
+    <!-- BESTAND -->
+    <h2>📦 Mein Bestand</h2>
+    <div class="box">
+        <table>
+            <thead>
+                <tr>
+                    <th>Symbol</th>
+                    <th>Stück</th>
+                    <th>Ø Kauf</th>
+                    <th>Kurs</th>
+                    <th>G&V</th>
+                    <th>%</th>
+                </tr>
+            </thead>
+            <tbody id="positionen">
+                <tr><td colspan="6" class="leer">Lädt...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <button class="refresh-btn" onclick="ladeDaten()">🔄 Aktualisieren</button>
+
+    <div class="footer">
+        Aktualisiert sich automatisch alle 5 Minuten<br>
+        Nächster Bot-Scan: stündlich Mo–Fr
     </div>
 
     <script>
         async function ladeDaten() {
             try {
-                const response = await fetch('data.json?t=' + Date.now());
-                const data = await response.json();
+                const r = await fetch('data.json?t=' + Date.now());
+                const d = await r.json();
 
-                document.getElementById('zeit').textContent = 'Letzter Scan: ' + data.zeitpunkt;
-                document.getElementById('kontostand').textContent = '$' + parseFloat(data.kontostand).toFixed(2);
-                document.getElementById('portfolio').textContent = '$' + parseFloat(data.portfolio).toFixed(2);
-                document.getElementById('kauf-anzahl').textContent = data.kaufsignale.length;
-                document.getElementById('verkauf-anzahl').textContent = data.verkaufsignale.length;
+                // Header
+                document.getElementById('zeit').textContent = '🕐 Letzter Scan: ' + d.zeitpunkt;
+                document.getElementById('kontostand').textContent = '$' + parseFloat(d.kontostand).toLocaleString('de-CH', {minimumFractionDigits: 2});
+                document.getElementById('portfolio').textContent = '$' + parseFloat(d.portfolio).toLocaleString('de-CH', {minimumFractionDigits: 2});
+                document.getElementById('kauf-anzahl').textContent = (d.kaufsignale || []).length;
+                document.getElementById('verkauf-anzahl').textContent = (d.verkaufsignale || []).length;
+                document.getElementById('pos-anzahl').textContent = (d.positionen || []).length;
 
                 // Kaufsignale
                 const kaufDiv = document.getElementById('kaufsignale');
-                if (data.kaufsignale.length === 0) {
-                    kaufDiv.innerHTML = '<p class="leer">Keine Kaufsignale</p>';
+                if (!d.kaufsignale || d.kaufsignale.length === 0) {
+                    kaufDiv.innerHTML = '<p class="leer">Keine Kaufsignale beim letzten Scan</p>';
                 } else {
-                    kaufDiv.innerHTML = data.kaufsignale
-                        .map(s => `<span class="tag tag-kauf">${s}</span>`)
-                        .join('');
+                    kaufDiv.innerHTML = d.kaufsignale.map(s =>
+                        `<div class="signal-item">${s.replace(/<[^>]+>/g, '').trim()}</div>`
+                    ).join('');
                 }
 
                 // Verkaufssignale
                 const verkaufDiv = document.getElementById('verkaufsignale');
-                if (data.verkaufsignale.length === 0) {
-                    verkaufDiv.innerHTML = '<p class="leer">Keine Verkaufssignale</p>';
+                if (!d.verkaufsignale || d.verkaufsignale.length === 0) {
+                    verkaufDiv.innerHTML = '<p class="leer">Keine Verkaufssignale beim letzten Scan</p>';
                 } else {
-                    verkaufDiv.innerHTML = data.verkaufsignale
-                        .map(s => `<span class="tag tag-verkauf">${s}</span>`)
-                        .join('');
+                    verkaufDiv.innerHTML = d.verkaufsignale.map(s =>
+                        `<div class="signal-item rot">${s.replace(/<[^>]+>/g, '').trim()}</div>`
+                    ).join('');
+                }
+
+                // Positionen
+                const tbody = document.getElementById('positionen');
+                if (!d.positionen || d.positionen.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="leer">Keine offenen Positionen</td></tr>';
+                } else {
+                    tbody.innerHTML = d.positionen.map(p => {
+                        const pl = parseFloat(p.pl);
+                        const plPct = parseFloat(p.pl_pct);
+                        const cls = pl >= 0 ? 'gruen' : 'rot';
+                        const badge = pl >= 0 ? 'badge-gruen' : 'badge-rot';
+                        return `<tr>
+                            <td><b>${p.symbol}</b></td>
+                            <td>${p.qty}</td>
+                            <td>$${parseFloat(p.einstieg).toFixed(2)}</td>
+                            <td>$${parseFloat(p.kurs).toFixed(2)}</td>
+                            <td class="${cls}">$${pl.toFixed(2)}</td>
+                            <td><span class="badge ${badge}">${plPct.toFixed(2)}%</span></td>
+                        </tr>`;
+                    }).join('');
                 }
 
             } catch(e) {
-                document.getElementById('zeit').textContent = 'Fehler beim Laden der Daten';
+                document.getElementById('zeit').textContent = '⚠️ Fehler beim Laden – data.json fehlt noch';
             }
         }
 
         ladeDaten();
-        setInterval(ladeDaten, 300000); // alle 5 Minuten
+        setInterval(ladeDaten, 300000);
     </script>
 </body>
 </html>
