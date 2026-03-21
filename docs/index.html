@@ -64,6 +64,65 @@
         .refresh-btn { background: #21262d; border: 1px solid #30363d; color: #e6edf3; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; margin-top: 16px; width: 100%; }
         .footer { text-align: center; color: #8b949e; font-size: 12px; margin-top: 20px; padding-bottom: 30px; }
         @media (max-width: 600px) { .zwei-spalten { grid-template-columns: 1fr; } }
+
+        /* Klickbare Zeilen */
+        .klickbar { cursor: pointer; transition: background 0.15s; }
+        .klickbar:hover { background: #1c2128 !important; }
+        .klickbar td:first-child { color: #58a6ff; }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            z-index: 1000;
+            padding: 16px;
+        }
+        .modal-overlay.aktiv { display: flex; align-items: center; justify-content: center; }
+        .modal {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 860px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid #30363d;
+        }
+        .modal-titel { font-size: 18px; font-weight: bold; color: #58a6ff; }
+        .modal-close {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #e6edf3;
+            width: 32px; height: 32px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .modal-body { padding: 16px 20px; }
+        .modal-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+        .modal-info-item {
+            background: #0d1117;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+        }
+        .modal-info-item h4 { font-size: 10px; color: #8b949e; text-transform: uppercase; margin-bottom: 4px; }
+        .modal-info-item p { font-size: 16px; font-weight: bold; }
+        #tv-chart { height: 500px; border-radius: 8px; overflow: hidden; }
     </style>
 </head>
 <body>
@@ -101,7 +160,7 @@
         </table>
     </div>
 
-    <h2>🌍 Marktübersicht</h2>
+    <h2>🌍 Marktübersicht <span style="color:#8b949e; font-size:11px; font-weight:normal;">– Aktie antippen für Chart</span></h2>
     <div class="box">
         <table>
             <thead><tr><th>Asset</th><th>Kurs</th><th>RSI</th><th>Trend</th><th>Signal</th><th>Support</th><th>Resist</th></tr></thead>
@@ -118,7 +177,7 @@
     <h2>🔴 Verkaufssignale & Warnungen</h2>
     <div class="box"><div id="verkaufsignale"><p class="leer">Lädt...</p></div></div>
 
-    <h2>📦 Mein Bestand</h2>
+    <h2>📦 Mein Bestand <span style="color:#8b949e; font-size:11px; font-weight:normal;">– Aktie antippen für Chart</span></h2>
     <div class="box">
         <table>
             <thead><tr><th>Symbol</th><th>Stück</th><th>Ø Kauf</th><th>Kurs</th><th>G&V $</th><th>G&V %</th></tr></thead>
@@ -129,162 +188,287 @@
     <button class="refresh-btn" onclick="ladeDaten()">🔄 Jetzt aktualisieren</button>
     <div class="footer">Aktualisiert sich automatisch alle 5 Minuten<br>Bot läuft stündlich Mo–Fr während Börsenzeiten</div>
 
+    <!-- CHART MODAL -->
+    <div class="modal-overlay" id="modal" onclick="schliesseModal(event)">
+        <div class="modal">
+            <div class="modal-header">
+                <span class="modal-titel" id="modal-titel">Chart</span>
+                <button class="modal-close" onclick="modalZu()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-info" id="modal-info"></div>
+                <div id="tv-chart"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
     <script>
-    function signalBadge(signal) {
-        if (signal.includes("KAUFEN"))    return `<span class="badge badge-gruen">${signal}</span>`;
-        if (signal.includes("VERKAUFEN")) return `<span class="badge badge-rot">${signal}</span>`;
-        if (signal.includes("NEUTRAL+"))  return `<span class="badge badge-gelb">${signal}</span>`;
-        return `<span class="badge badge-grau">${signal}</span>`;
-    }
+        let aktuellesDaten = null;
 
-    function sentimentBadge(sentiment) {
-        if (sentiment === "POSITIV") return `<span class="badge badge-gruen">🟢 POSITIV</span>`;
-        if (sentiment === "NEGATIV") return `<span class="badge badge-rot">🔴 NEGATIV</span>`;
-        return `<span class="badge badge-grau">⏳ NEUTRAL</span>`;
-    }
-
-    function korrFarbe(k) {
-        if (k >= 0.7)  return '#3fb950';
-        if (k >= 0.4)  return '#d29922';
-        if (k >= 0.1)  return '#58a6ff';
-        if (k >= -0.1) return '#8b949e';
-        if (k >= -0.4) return '#d29922';
-        if (k >= -0.7) return '#f0883e';
-        return '#f85149';
-    }
-
-    async function ladeDaten() {
-        try {
-            const r = await fetch('data.json?t=' + Date.now());
-            const d = await r.json();
-
-            document.getElementById('zeit').textContent = '🕐 Letzter Scan: ' + d.zeitpunkt;
-            document.getElementById('kontostand').textContent = '$' + parseFloat(d.kontostand).toLocaleString('de-CH', {minimumFractionDigits: 2});
-            document.getElementById('portfolio').textContent = '$' + parseFloat(d.portfolio).toLocaleString('de-CH', {minimumFractionDigits: 2});
-            document.getElementById('kauf-anzahl').textContent = (d.kaufsignale || []).length;
-            document.getElementById('verkauf-anzahl').textContent = (d.verkaufsignale || []).length;
-            document.getElementById('pos-anzahl').textContent = (d.positionen || []).length;
-
-            // Regime
-            const regimeDiv = document.getElementById('regime');
-            regimeDiv.innerHTML = !d.regime || d.regime.length === 0
-                ? '<p class="leer">Keine Daten</p>'
-                : d.regime.map(r => `<div class="regime-item">${r}</div>`).join('');
-
-            // Warnungen
-            const warnDiv = document.getElementById('warnungen');
-            warnDiv.innerHTML = !d.warnungen || d.warnungen.length === 0
-                ? '<p class="leer">✅ Keine Warnungen</p>'
-                : d.warnungen.map(w => `<div class="warnung-item">${w}</div>`).join('');
-
-            // Empfehlungen
-            const empDiv = document.getElementById('empfehlungen');
-            empDiv.innerHTML = !d.empfehlungen || d.empfehlungen.length === 0
-                ? '<p class="leer">Keine Empfehlungen</p>'
-                : d.empfehlungen.map(e => `<div class="empfehlung-item">${e}</div>`).join('');
-
-            // Korrelationen
-            const korrTbody = document.getElementById('korrelationen');
-            if (!d.korrelationen || d.korrelationen.length === 0) {
-                korrTbody.innerHTML = '<tr><td colspan="4" class="leer">Keine Daten</td></tr>';
-            } else {
-                korrTbody.innerHTML = d.korrelationen.map(k => {
-                    const farbe = korrFarbe(k.korrelation);
-                    return `<tr>
-                        <td><b>${k.label}</b></td>
-                        <td style="color:${farbe}; font-weight:bold;">${k.korrelation}</td>
-                        <td>${k.beschreibung}</td>
-                        <td><div class="korr-bar-wrap"><div class="korr-bar-bg">
-                            <div class="korr-bar" style="width:${Math.abs(k.korrelation)*100}%; background:${farbe};"></div>
-                        </div></div></td>
-                    </tr>`;
-                }).join('');
-            }
-
-            // Marktübersicht
-            const marktTbody = document.getElementById('markt-tabelle');
-            if (!d.markt || d.markt.length === 0) {
-                marktTbody.innerHTML = '<tr><td colspan="7" class="leer">Keine Marktdaten</td></tr>';
-            } else {
-                marktTbody.innerHTML = d.markt.map(m => `
-                    <tr>
-                        <td><b>${m.emoji} ${m.name}</b></td>
-                        <td>$${parseFloat(m.kurs).toLocaleString('de-CH', {minimumFractionDigits: 2})}</td>
-                        <td>${m.rsi}</td>
-                        <td>${m.trend}</td>
-                        <td>${signalBadge(m.signal)}</td>
-                        <td class="grau">$${m.support}</td>
-                        <td class="grau">$${m.resistance}</td>
-                    </tr>`).join('');
-            }
-
-            // News Sentiment
-            const newsDiv = document.getElementById('news');
-            console.log('News data:', d.news);
-            if (!d.news || d.news.length === 0) {
-                newsDiv.innerHTML = '<p class="leer">Keine News verfügbar</p>';
-            } else {
-                newsDiv.innerHTML = d.news.map(n => `
-                    <div class="news-item">
-                        <div class="news-header">
-                            <span class="news-symbol">${n.symbol}</span>
-                            <div style="display:flex; align-items:center; gap:8px;">
-                                ${sentimentBadge(n.sentiment)}
-                                <span class="grau" style="font-size:12px;">${n.score}/100</span>
-                            </div>
-                        </div>
-                        <div style="color:#8b949e; font-size:12px; margin-bottom:6px; font-style:italic;">
-                            💬 ${n.grund}
-                        </div>
-                        ${(n.headlines || []).map(h => `
-                            <div class="news-headline">📰 ${h}</div>
-                        `).join('')}
-                    </div>
-                `).join('');
-            }
-
-            // Kaufsignale
-            const kaufDiv = document.getElementById('kaufsignale');
-            kaufDiv.innerHTML = !d.kaufsignale || d.kaufsignale.length === 0
-                ? '<p class="leer">Keine Kaufsignale beim letzten Scan</p>'
-                : d.kaufsignale.map(s => `<div class="signal-item" style="border-left:3px solid #3fb950;">${s.replace(/<[^>]+>/g, '').trim()}</div>`).join('');
-
-            // Verkaufssignale
-            const verkaufDiv = document.getElementById('verkaufsignale');
-            verkaufDiv.innerHTML = !d.verkaufsignale || d.verkaufsignale.length === 0
-                ? '<p class="leer">Keine Verkaufssignale beim letzten Scan</p>'
-                : d.verkaufsignale.map(s => `<div class="signal-item" style="border-left:3px solid #f85149;">${s.replace(/<[^>]+>/g, '').trim()}</div>`).join('');
-
-            // Positionen
-            const tbody = document.getElementById('positionen');
-            if (!d.positionen || d.positionen.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="leer">Keine offenen Positionen</td></tr>';
-            } else {
-                tbody.innerHTML = d.positionen.map(p => {
-                    const pl = parseFloat(p.pl);
-                    const plPct = parseFloat(p.pl_pct);
-                    const cls = pl >= 0 ? 'gruen' : 'rot';
-                    const badge = pl >= 0 ? 'badge-gruen' : 'badge-rot';
-                    return `<tr>
-                        <td><b>${p.symbol}</b></td>
-                        <td>${p.qty}</td>
-                        <td>$${parseFloat(p.einstieg).toFixed(2)}</td>
-                        <td>$${parseFloat(p.kurs).toFixed(2)}</td>
-                        <td class="${cls}">$${pl.toFixed(2)}</td>
-                        <td><span class="badge ${badge}">${plPct.toFixed(2)}%</span></td>
-                    </tr>`;
-                }).join('');
-            }
-
-        } catch(e) {
-            console.error('Fehler:', e);
-            document.getElementById('zeit').textContent = '⚠️ Fehler beim Laden';
+        function signalBadge(signal) {
+            if (signal.includes("KAUFEN"))    return `<span class="badge badge-gruen">${signal}</span>`;
+            if (signal.includes("VERKAUFEN")) return `<span class="badge badge-rot">${signal}</span>`;
+            if (signal.includes("NEUTRAL+"))  return `<span class="badge badge-gelb">${signal}</span>`;
+            return `<span class="badge badge-grau">${signal}</span>`;
         }
-    }
 
-    ladeDaten();
-    setInterval(ladeDaten, 300000);
-</script>
+        function sentimentBadge(sentiment) {
+            if (sentiment === "POSITIV") return `<span class="badge badge-gruen">🟢 POSITIV</span>`;
+            if (sentiment === "NEGATIV") return `<span class="badge badge-rot">🔴 NEGATIV</span>`;
+            return `<span class="badge badge-grau">⏳ NEUTRAL</span>`;
+        }
 
+        function korrFarbe(k) {
+            if (k >= 0.7)  return '#3fb950';
+            if (k >= 0.4)  return '#d29922';
+            if (k >= 0.1)  return '#58a6ff';
+            if (k >= -0.1) return '#8b949e';
+            if (k >= -0.4) return '#d29922';
+            if (k >= -0.7) return '#f0883e';
+            return '#f85149';
+        }
+
+        // Symbol für TradingView formatieren
+        function tvSymbol(symbol) {
+            const krypto = {
+                "BTC/USD": "BINANCE:BTCUSDT",
+                "ETH/USD": "BINANCE:ETHUSDT",
+                "SOL/USD": "BINANCE:SOLUSDT",
+                "DOGE/USD": "BINANCE:DOGEUSDT",
+                "AVAX/USD": "BINANCE:AVAXUSDT",
+                "LINK/USD": "BINANCE:LINKUSDT",
+                "LTC/USD": "BINANCE:LTCUSDT",
+                "UNI/USD": "BINANCE:UNIUSDT",
+                "AAVE/USD": "BINANCE:AAVEUSDT",
+                "SHIB/USD": "BINANCE:SHIBUSDT",
+                "ARB/USD": "BINANCE:ARBUSDT",
+                "OP/USD": "BINANCE:OPUSDT",
+                "MATIC/USD": "BINANCE:MATICUSDT",
+            };
+            if (krypto[symbol]) return krypto[symbol];
+            return `NASDAQ:${symbol}`;
+        }
+
+        function oeffneChart(symbol, info) {
+            document.getElementById('modal-titel').textContent = `${symbol} – Chart`;
+            document.getElementById('modal').classList.add('aktiv');
+            document.body.style.overflow = 'hidden';
+
+            // Info Karten
+            let infoHTML = '';
+            if (info) {
+                infoHTML = `
+                    <div class="modal-info-item">
+                        <h4>💰 Kurs</h4>
+                        <p>$${parseFloat(info.kurs).toFixed(2)}</p>
+                    </div>
+                    <div class="modal-info-item">
+                        <h4>📊 RSI</h4>
+                        <p>${info.rsi || '–'}</p>
+                    </div>
+                    <div class="modal-info-item">
+                        <h4>📈 Trend</h4>
+                        <p>${info.trend || '–'}</p>
+                    </div>
+                    <div class="modal-info-item">
+                        <h4>🛡️ Support</h4>
+                        <p class="gruen">$${info.support || '–'}</p>
+                    </div>
+                    <div class="modal-info-item">
+                        <h4>🎯 Resist</h4>
+                        <p class="rot">$${info.resistance || '–'}</p>
+                    </div>
+                    <div class="modal-info-item">
+                        <h4>🎯 Signal</h4>
+                        <p style="font-size:12px;">${info.signal || '–'}</p>
+                    </div>
+                `;
+            }
+            document.getElementById('modal-info').innerHTML = infoHTML;
+
+            // TradingView Chart
+            document.getElementById('tv-chart').innerHTML = '';
+            new TradingView.widget({
+                container_id: "tv-chart",
+                symbol: tvSymbol(symbol),
+                interval: "D",
+                theme: "dark",
+                style: "1",
+                locale: "de_DE",
+                toolbar_bg: "#161b22",
+                enable_publishing: false,
+                hide_top_toolbar: false,
+                hide_legend: false,
+                save_image: false,
+                height: 500,
+                width: "100%",
+                studies: [
+                    "RSI@tv-basicstudies",
+                    "MASimple@tv-basicstudies"
+                ],
+                overrides: {
+                    "mainSeriesProperties.candleStyle.upColor": "#3fb950",
+                    "mainSeriesProperties.candleStyle.downColor": "#f85149",
+                    "mainSeriesProperties.candleStyle.borderUpColor": "#3fb950",
+                    "mainSeriesProperties.candleStyle.borderDownColor": "#f85149",
+                    "paneProperties.background": "#0d1117",
+                    "paneProperties.vertGridProperties.color": "#21262d",
+                    "paneProperties.horzGridProperties.color": "#21262d",
+                }
+            });
+        }
+
+        function modalZu() {
+            document.getElementById('modal').classList.remove('aktiv');
+            document.body.style.overflow = '';
+            document.getElementById('tv-chart').innerHTML = '';
+        }
+
+        function schliesseModal(event) {
+            if (event.target === document.getElementById('modal')) {
+                modalZu();
+            }
+        }
+
+        async function ladeDaten() {
+            try {
+                const r = await fetch('data.json?t=' + Date.now());
+                const d = await r.json();
+                aktuellesDaten = d;
+
+                document.getElementById('zeit').textContent = '🕐 Letzter Scan: ' + d.zeitpunkt;
+                document.getElementById('kontostand').textContent = '$' + parseFloat(d.kontostand).toLocaleString('de-CH', {minimumFractionDigits: 2});
+                document.getElementById('portfolio').textContent = '$' + parseFloat(d.portfolio).toLocaleString('de-CH', {minimumFractionDigits: 2});
+                document.getElementById('kauf-anzahl').textContent = (d.kaufsignale || []).length;
+                document.getElementById('verkauf-anzahl').textContent = (d.verkaufsignale || []).length;
+                document.getElementById('pos-anzahl').textContent = (d.positionen || []).length;
+
+                // Regime
+                const regimeDiv = document.getElementById('regime');
+                regimeDiv.innerHTML = !d.regime || d.regime.length === 0
+                    ? '<p class="leer">Keine Daten</p>'
+                    : d.regime.map(r => `<div class="regime-item">${r}</div>`).join('');
+
+                // Warnungen
+                const warnDiv = document.getElementById('warnungen');
+                warnDiv.innerHTML = !d.warnungen || d.warnungen.length === 0
+                    ? '<p class="leer">✅ Keine Warnungen</p>'
+                    : d.warnungen.map(w => `<div class="warnung-item">${w}</div>`).join('');
+
+                // Empfehlungen
+                const empDiv = document.getElementById('empfehlungen');
+                empDiv.innerHTML = !d.empfehlungen || d.empfehlungen.length === 0
+                    ? '<p class="leer">Keine Empfehlungen</p>'
+                    : d.empfehlungen.map(e => `<div class="empfehlung-item">${e}</div>`).join('');
+
+                // Korrelationen
+                const korrTbody = document.getElementById('korrelationen');
+                if (!d.korrelationen || d.korrelationen.length === 0) {
+                    korrTbody.innerHTML = '<tr><td colspan="4" class="leer">Keine Daten</td></tr>';
+                } else {
+                    korrTbody.innerHTML = d.korrelationen.map(k => {
+                        const farbe = korrFarbe(k.korrelation);
+                        return `<tr>
+                            <td><b>${k.label}</b></td>
+                            <td style="color:${farbe}; font-weight:bold;">${k.korrelation}</td>
+                            <td>${k.beschreibung}</td>
+                            <td><div class="korr-bar-wrap"><div class="korr-bar-bg">
+                                <div class="korr-bar" style="width:${Math.abs(k.korrelation)*100}%; background:${farbe};"></div>
+                            </div></div></td>
+                        </tr>`;
+                    }).join('');
+                }
+
+                // Marktübersicht – klickbar
+                const marktTbody = document.getElementById('markt-tabelle');
+                if (!d.markt || d.markt.length === 0) {
+                    marktTbody.innerHTML = '<tr><td colspan="7" class="leer">Keine Marktdaten</td></tr>';
+                } else {
+                    marktTbody.innerHTML = d.markt.map(m => `
+                        <tr class="klickbar" onclick="oeffneChart('${m.symbol}', ${JSON.stringify(m).replace(/'/g, "\\'")})">
+                            <td><b>${m.emoji} ${m.name}</b></td>
+                            <td>$${parseFloat(m.kurs).toLocaleString('de-CH', {minimumFractionDigits: 2})}</td>
+                            <td>${m.rsi}</td>
+                            <td>${m.trend}</td>
+                            <td>${signalBadge(m.signal)}</td>
+                            <td class="gruen">$${m.support}</td>
+                            <td class="rot">$${m.resistance}</td>
+                        </tr>`).join('');
+                }
+
+                // News Sentiment
+                const newsDiv = document.getElementById('news');
+                if (!d.news || d.news.length === 0) {
+                    newsDiv.innerHTML = '<p class="leer">Keine News verfügbar</p>';
+                } else {
+                    newsDiv.innerHTML = d.news.map(n => `
+                        <div class="news-item">
+                            <div class="news-header">
+                                <span class="news-symbol">${n.symbol}</span>
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    ${sentimentBadge(n.sentiment)}
+                                    <span class="grau" style="font-size:12px;">${n.score}/100</span>
+                                </div>
+                            </div>
+                            <div style="color:#8b949e; font-size:12px; margin-bottom:6px; font-style:italic;">
+                                💬 ${n.grund}
+                            </div>
+                            ${(n.headlines || []).map(h => `
+                                <div class="news-headline">📰 ${h}</div>
+                            `).join('')}
+                        </div>`).join('');
+                }
+
+                // Kaufsignale
+                const kaufDiv = document.getElementById('kaufsignale');
+                kaufDiv.innerHTML = !d.kaufsignale || d.kaufsignale.length === 0
+                    ? '<p class="leer">Keine Kaufsignale beim letzten Scan</p>'
+                    : d.kaufsignale.map(s => `<div class="signal-item" style="border-left:3px solid #3fb950;">${s.replace(/<[^>]+>/g, '').trim()}</div>`).join('');
+
+                // Verkaufssignale
+                const verkaufDiv = document.getElementById('verkaufsignale');
+                verkaufDiv.innerHTML = !d.verkaufsignale || d.verkaufsignale.length === 0
+                    ? '<p class="leer">Keine Verkaufssignale beim letzten Scan</p>'
+                    : d.verkaufsignale.map(s => `<div class="signal-item" style="border-left:3px solid #f85149;">${s.replace(/<[^>]+>/g, '').trim()}</div>`).join('');
+
+                // Positionen – klickbar
+                const tbody = document.getElementById('positionen');
+                if (!d.positionen || d.positionen.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="leer">Keine offenen Positionen</td></tr>';
+                } else {
+                    tbody.innerHTML = d.positionen.map(p => {
+                        const pl = parseFloat(p.pl);
+                        const plPct = parseFloat(p.pl_pct);
+                        const cls = pl >= 0 ? 'gruen' : 'rot';
+                        const badge = pl >= 0 ? 'badge-gruen' : 'badge-rot';
+                        const info = {
+                            kurs: p.kurs,
+                            support: '–',
+                            resistance: '–',
+                            rsi: '–',
+                            trend: '–',
+                            signal: pl >= 0 ? '🟢 Im Plus' : '🔴 Im Minus'
+                        };
+                        return `<tr class="klickbar" onclick="oeffneChart('${p.symbol}', ${JSON.stringify(info)})">
+                            <td><b>${p.symbol}</b></td>
+                            <td>${p.qty}</td>
+                            <td>$${parseFloat(p.einstieg).toFixed(2)}</td>
+                            <td>$${parseFloat(p.kurs).toFixed(2)}</td>
+                            <td class="${cls}">$${pl.toFixed(2)}</td>
+                            <td><span class="badge ${badge}">${plPct.toFixed(2)}%</span></td>
+                        </tr>`;
+                    }).join('');
+                }
+
+            } catch(e) {
+                console.error('Fehler:', e);
+                document.getElementById('zeit').textContent = '⚠️ Fehler beim Laden';
+            }
+        }
+
+        ladeDaten();
+        setInterval(ladeDaten, 300000);
+    </script>
 </body>
 </html>
