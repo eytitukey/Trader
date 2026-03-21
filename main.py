@@ -21,15 +21,15 @@ crypto_data_client = CryptoHistoricalDataClient(API_KEY, SECRET_KEY)
 
 AKTIEN = [
     "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN",
-    "META", "TSLA", "BRK.B", "AVGO", "JPM",
-    "LLY", "V", "UNH", "XOM", "MA",
-    "COST", "HD", "PG", "JNJ", "NFLX",
-    "ABBV", "BAC", "CRM", "ORCL", "CVX",
-    "MRK", "AMD", "KO", "PEP", "TMO",
-    "ACN", "CSCO", "LIN", "MCD", "ABT",
-    "IBM", "GE", "NOW", "ISRG", "GS",
-    "TXN", "QCOM", "INTU", "SPGI", "BKNG",
-    "RTX", "CAT", "DHR", "AMGN", "BLK"
+    "META", "TSLA", "AVGO", "JPM", "LLY",
+    "V", "UNH", "XOM", "MA", "COST",
+    "HD", "PG", "JNJ", "NFLX", "ABBV",
+    "BAC", "CRM", "ORCL", "CVX", "MRK",
+    "AMD", "KO", "PEP", "TMO", "ACN",
+    "CSCO", "LIN", "MCD", "ABT", "IBM",
+    "GE", "NOW", "ISRG", "GS", "TXN",
+    "QCOM", "INTU", "SPGI", "BKNG", "RTX",
+    "CAT", "DHR", "AMGN", "BLK", "SPY"
 ]
 
 KRYPTOS = [
