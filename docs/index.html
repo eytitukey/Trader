@@ -16,24 +16,26 @@
         }
         h1 { color: #58a6ff; font-size: 22px; margin-bottom: 4px; }
         .zeit { color: #8b949e; font-size: 13px; margin-bottom: 20px; }
-        h2 { font-size: 14px; color: #8b949e; text-transform: uppercase;
-             letter-spacing: 1px; margin: 24px 0 12px; }
+        h2 { font-size: 13px; color: #8b949e; text-transform: uppercase;
+             letter-spacing: 1px; margin: 24px 0 10px; }
         .karten {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 12px;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
             margin-bottom: 8px;
         }
         .karte {
             background: #161b22;
             border: 1px solid #30363d;
             border-radius: 10px;
-            padding: 16px;
+            padding: 14px;
         }
-        .karte h3 { color: #8b949e; font-size: 11px; margin-bottom: 6px; text-transform: uppercase; }
-        .karte p { font-size: 22px; font-weight: bold; }
+        .karte h3 { color: #8b949e; font-size: 10px; margin-bottom: 6px;
+                    text-transform: uppercase; letter-spacing: 0.5px; }
+        .karte p { font-size: 20px; font-weight: bold; }
         .gruen { color: #3fb950; }
         .rot { color: #f85149; }
+        .gelb { color: #d29922; }
         .grau { color: #8b949e; }
         .box {
             background: #161b22;
@@ -42,36 +44,21 @@
             padding: 16px;
             margin-bottom: 12px;
         }
-        .box-titel {
-            font-size: 13px;
-            font-weight: bold;
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #30363d;
-        }
         .signal-item {
             background: #0d1117;
             border-radius: 8px;
-            padding: 12px;
+            padding: 10px 12px;
             margin-bottom: 8px;
             font-size: 13px;
-            line-height: 1.6;
+            line-height: 1.7;
+            white-space: pre-wrap;
         }
-        .tag {
-            display: inline-block;
-            padding: 3px 10px;
-            border-radius: 20px;
-            font-size: 12px;
-            margin: 2px;
-            font-weight: bold;
-        }
-        .tag-kauf { background: #1a4a2e; color: #3fb950; }
-        .tag-verkauf { background: #4a1a1a; color: #f85149; }
         .leer { color: #8b949e; font-style: italic; font-size: 13px; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
         th { color: #8b949e; text-align: left; padding: 6px 8px;
-             border-bottom: 1px solid #30363d; font-weight: normal; font-size: 11px; text-transform: uppercase; }
-        td { padding: 8px; border-bottom: 1px solid #21262d; }
+             border-bottom: 1px solid #30363d; font-weight: normal;
+             font-size: 11px; text-transform: uppercase; }
+        td { padding: 9px 8px; border-bottom: 1px solid #21262d; }
         tr:last-child td { border-bottom: none; }
         .badge {
             display: inline-block;
@@ -82,6 +69,8 @@
         }
         .badge-gruen { background: #1a4a2e; color: #3fb950; }
         .badge-rot { background: #4a1a1a; color: #f85149; }
+        .badge-gelb { background: #3a2e00; color: #d29922; }
+        .badge-grau { background: #21262d; color: #8b949e; }
         .refresh-btn {
             background: #21262d;
             border: 1px solid #30363d;
@@ -90,9 +79,16 @@
             border-radius: 6px;
             cursor: pointer;
             font-size: 13px;
-            margin-top: 20px;
+            margin-top: 16px;
+            width: 100%;
         }
-        .footer { text-align: center; color: #8b949e; font-size: 12px; margin-top: 24px; padding-bottom: 20px; }
+        .footer {
+            text-align: center;
+            color: #8b949e;
+            font-size: 12px;
+            margin-top: 20px;
+            padding-bottom: 30px;
+        }
     </style>
 </head>
 <body>
@@ -124,6 +120,27 @@
         </div>
     </div>
 
+    <!-- MARKTÜBERSICHT -->
+    <h2>🌍 Marktübersicht</h2>
+    <div class="box">
+        <table>
+            <thead>
+                <tr>
+                    <th>Asset</th>
+                    <th>Kurs</th>
+                    <th>RSI</th>
+                    <th>Trend</th>
+                    <th>Signal</th>
+                    <th>Support</th>
+                    <th>Resist</th>
+                </tr>
+            </thead>
+            <tbody id="markt-tabelle">
+                <tr><td colspan="7" class="leer">Lädt...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
     <!-- KAUFSIGNALE -->
     <h2>🟢 Kaufsignale</h2>
     <div class="box">
@@ -146,8 +163,8 @@
                     <th>Stück</th>
                     <th>Ø Kauf</th>
                     <th>Kurs</th>
-                    <th>G&V</th>
-                    <th>%</th>
+                    <th>G&V $</th>
+                    <th>G&V %</th>
                 </tr>
             </thead>
             <tbody id="positionen">
@@ -156,14 +173,21 @@
         </table>
     </div>
 
-    <button class="refresh-btn" onclick="ladeDaten()">🔄 Aktualisieren</button>
+    <button class="refresh-btn" onclick="ladeDaten()">🔄 Jetzt aktualisieren</button>
 
     <div class="footer">
         Aktualisiert sich automatisch alle 5 Minuten<br>
-        Nächster Bot-Scan: stündlich Mo–Fr
+        Bot läuft stündlich Mo–Fr während Börsenzeiten
     </div>
 
     <script>
+        function signalBadge(signal) {
+            if (signal.includes("KAUFEN"))   return `<span class="badge badge-gruen">${signal}</span>`;
+            if (signal.includes("VERKAUFEN")) return `<span class="badge badge-rot">${signal}</span>`;
+            if (signal.includes("NEUTRAL+")) return `<span class="badge badge-gelb">${signal}</span>`;
+            return `<span class="badge badge-grau">${signal}</span>`;
+        }
+
         async function ladeDaten() {
             try {
                 const r = await fetch('data.json?t=' + Date.now());
@@ -176,6 +200,24 @@
                 document.getElementById('kauf-anzahl').textContent = (d.kaufsignale || []).length;
                 document.getElementById('verkauf-anzahl').textContent = (d.verkaufsignale || []).length;
                 document.getElementById('pos-anzahl').textContent = (d.positionen || []).length;
+
+                // Marktübersicht
+                const marktTbody = document.getElementById('markt-tabelle');
+                if (!d.markt || d.markt.length === 0) {
+                    marktTbody.innerHTML = '<tr><td colspan="7" class="leer">Keine Marktdaten</td></tr>';
+                } else {
+                    marktTbody.innerHTML = d.markt.map(m => `
+                        <tr>
+                            <td><b>${m.emoji} ${m.name}</b></td>
+                            <td>$${parseFloat(m.kurs).toLocaleString('de-CH', {minimumFractionDigits: 2})}</td>
+                            <td>${m.rsi}</td>
+                            <td>${m.trend}</td>
+                            <td>${signalBadge(m.signal)}</td>
+                            <td class="grau">$${m.support}</td>
+                            <td class="grau">$${m.resistance}</td>
+                        </tr>
+                    `).join('');
+                }
 
                 // Kaufsignale
                 const kaufDiv = document.getElementById('kaufsignale');
@@ -193,7 +235,7 @@
                     verkaufDiv.innerHTML = '<p class="leer">Keine Verkaufssignale beim letzten Scan</p>';
                 } else {
                     verkaufDiv.innerHTML = d.verkaufsignale.map(s =>
-                        `<div class="signal-item rot">${s.replace(/<[^>]+>/g, '').trim()}</div>`
+                        `<div class="signal-item" style="border-left: 3px solid #f85149;">${s.replace(/<[^>]+>/g, '').trim()}</div>`
                     ).join('');
                 }
 
@@ -219,7 +261,7 @@
                 }
 
             } catch(e) {
-                document.getElementById('zeit').textContent = '⚠️ Fehler beim Laden – data.json fehlt noch';
+                document.getElementById('zeit').textContent = '⚠️ Fehler beim Laden – Bot noch nicht gelaufen';
             }
         }
 
