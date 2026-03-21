@@ -11,16 +11,16 @@
             background: #0d1117;
             color: #e6edf3;
             padding: 16px;
-            max-width: 900px;
+            max-width: 960px;
             margin: 0 auto;
         }
         h1 { color: #58a6ff; font-size: 22px; margin-bottom: 4px; }
         .zeit { color: #8b949e; font-size: 13px; margin-bottom: 20px; }
-        h2 { font-size: 13px; color: #8b949e; text-transform: uppercase;
+        h2 { font-size: 12px; color: #8b949e; text-transform: uppercase;
              letter-spacing: 1px; margin: 24px 0 10px; }
         .karten {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
             gap: 10px;
             margin-bottom: 8px;
         }
@@ -31,7 +31,7 @@
             padding: 14px;
         }
         .karte h3 { color: #8b949e; font-size: 10px; margin-bottom: 6px;
-                    text-transform: uppercase; letter-spacing: 0.5px; }
+                    text-transform: uppercase; }
         .karte p { font-size: 20px; font-weight: bold; }
         .gruen { color: #3fb950; }
         .rot { color: #f85149; }
@@ -53,6 +53,28 @@
             line-height: 1.7;
             white-space: pre-wrap;
         }
+        .regime-item {
+            display: inline-block;
+            background: #21262d;
+            border-radius: 6px;
+            padding: 4px 10px;
+            margin: 3px;
+            font-size: 13px;
+        }
+        .warnung-item {
+            background: #3a1a1a;
+            border-left: 3px solid #f85149;
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-bottom: 6px;
+            font-size: 13px;
+        }
+        .empfehlung-item {
+            padding: 5px 0;
+            font-size: 13px;
+            border-bottom: 1px solid #21262d;
+        }
+        .empfehlung-item:last-child { border-bottom: none; }
         .leer { color: #8b949e; font-style: italic; font-size: 13px; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
         th { color: #8b949e; text-align: left; padding: 6px 8px;
@@ -71,6 +93,12 @@
         .badge-rot { background: #4a1a1a; color: #f85149; }
         .badge-gelb { background: #3a2e00; color: #d29922; }
         .badge-grau { background: #21262d; color: #8b949e; }
+        .korr-bar-wrap { display: flex; align-items: center; gap: 8px; }
+        .korr-bar-bg {
+            flex: 1; height: 6px; background: #21262d;
+            border-radius: 3px; overflow: hidden;
+        }
+        .korr-bar { height: 100%; border-radius: 3px; }
         .refresh-btn {
             background: #21262d;
             border: 1px solid #30363d;
@@ -89,6 +117,12 @@
             margin-top: 20px;
             padding-bottom: 30px;
         }
+        .zwei-spalten {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        @media (max-width: 600px) { .zwei-spalten { grid-template-columns: 1fr; } }
     </style>
 </head>
 <body>
@@ -118,6 +152,46 @@
             <h3>📦 Positionen</h3>
             <p id="pos-anzahl">–</p>
         </div>
+    </div>
+
+    <!-- MARKTREGIME & WARNUNGEN -->
+    <div class="zwei-spalten">
+        <div>
+            <h2>🌡️ Marktregime</h2>
+            <div class="box">
+                <div id="regime"><p class="leer">Lädt...</p></div>
+            </div>
+        </div>
+        <div>
+            <h2>🚨 Warnungen</h2>
+            <div class="box">
+                <div id="warnungen"><p class="leer">Lädt...</p></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- EMPFEHLUNGEN -->
+    <h2>💡 Empfehlungen</h2>
+    <div class="box">
+        <div id="empfehlungen"><p class="leer">Lädt...</p></div>
+    </div>
+
+    <!-- KORRELATIONEN -->
+    <h2>🔗 Korrelationen (30 Tage)</h2>
+    <div class="box">
+        <table>
+            <thead>
+                <tr>
+                    <th>Asset Paar</th>
+                    <th>Korrelation</th>
+                    <th>Stärke</th>
+                    <th>Visualisierung</th>
+                </tr>
+            </thead>
+            <tbody id="korrelationen">
+                <tr><td colspan="4" class="leer">Lädt...</td></tr>
+            </tbody>
+        </table>
     </div>
 
     <!-- MARKTÜBERSICHT -->
@@ -182,10 +256,24 @@
 
     <script>
         function signalBadge(signal) {
-            if (signal.includes("KAUFEN"))   return `<span class="badge badge-gruen">${signal}</span>`;
+            if (signal.includes("KAUFEN"))    return `<span class="badge badge-gruen">${signal}</span>`;
             if (signal.includes("VERKAUFEN")) return `<span class="badge badge-rot">${signal}</span>`;
-            if (signal.includes("NEUTRAL+")) return `<span class="badge badge-gelb">${signal}</span>`;
+            if (signal.includes("NEUTRAL+"))  return `<span class="badge badge-gelb">${signal}</span>`;
             return `<span class="badge badge-grau">${signal}</span>`;
+        }
+
+        function korrFarbe(k) {
+            if (k >= 0.7)  return '#3fb950';
+            if (k >= 0.4)  return '#d29922';
+            if (k >= 0.1)  return '#58a6ff';
+            if (k >= -0.1) return '#8b949e';
+            if (k >= -0.4) return '#d29922';
+            if (k >= -0.7) return '#f0883e';
+            return '#f85149';
+        }
+
+        function korrBreite(k) {
+            return Math.abs(k) * 100;
         }
 
         async function ladeDaten() {
@@ -193,13 +281,65 @@
                 const r = await fetch('data.json?t=' + Date.now());
                 const d = await r.json();
 
-                // Header
                 document.getElementById('zeit').textContent = '🕐 Letzter Scan: ' + d.zeitpunkt;
                 document.getElementById('kontostand').textContent = '$' + parseFloat(d.kontostand).toLocaleString('de-CH', {minimumFractionDigits: 2});
                 document.getElementById('portfolio').textContent = '$' + parseFloat(d.portfolio).toLocaleString('de-CH', {minimumFractionDigits: 2});
                 document.getElementById('kauf-anzahl').textContent = (d.kaufsignale || []).length;
                 document.getElementById('verkauf-anzahl').textContent = (d.verkaufsignale || []).length;
                 document.getElementById('pos-anzahl').textContent = (d.positionen || []).length;
+
+                // Regime
+                const regimeDiv = document.getElementById('regime');
+                if (!d.regime || d.regime.length === 0) {
+                    regimeDiv.innerHTML = '<p class="leer">Keine Daten</p>';
+                } else {
+                    regimeDiv.innerHTML = d.regime.map(r =>
+                        `<div class="regime-item">${r}</div>`
+                    ).join('');
+                }
+
+                // Warnungen
+                const warnDiv = document.getElementById('warnungen');
+                if (!d.warnungen || d.warnungen.length === 0) {
+                    warnDiv.innerHTML = '<p class="leer">✅ Keine Warnungen</p>';
+                } else {
+                    warnDiv.innerHTML = d.warnungen.map(w =>
+                        `<div class="warnung-item">${w}</div>`
+                    ).join('');
+                }
+
+                // Empfehlungen
+                const empDiv = document.getElementById('empfehlungen');
+                if (!d.empfehlungen || d.empfehlungen.length === 0) {
+                    empDiv.innerHTML = '<p class="leer">Keine Empfehlungen</p>';
+                } else {
+                    empDiv.innerHTML = d.empfehlungen.map(e =>
+                        `<div class="empfehlung-item">${e}</div>`
+                    ).join('');
+                }
+
+                // Korrelationen
+                const korrTbody = document.getElementById('korrelationen');
+                if (!d.korrelationen || d.korrelationen.length === 0) {
+                    korrTbody.innerHTML = '<tr><td colspan="4" class="leer">Keine Daten</td></tr>';
+                } else {
+                    korrTbody.innerHTML = d.korrelationen.map(k => {
+                        const farbe = korrFarbe(k.korrelation);
+                        const breite = korrBreite(k.korrelation);
+                        return `<tr>
+                            <td><b>${k.label}</b></td>
+                            <td style="color:${farbe}; font-weight:bold;">${k.korrelation}</td>
+                            <td>${k.beschreibung}</td>
+                            <td>
+                                <div class="korr-bar-wrap">
+                                    <div class="korr-bar-bg">
+                                        <div class="korr-bar" style="width:${breite}%; background:${farbe};"></div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>`;
+                    }).join('');
+                }
 
                 // Marktübersicht
                 const marktTbody = document.getElementById('markt-tabelle');
@@ -225,7 +365,7 @@
                     kaufDiv.innerHTML = '<p class="leer">Keine Kaufsignale beim letzten Scan</p>';
                 } else {
                     kaufDiv.innerHTML = d.kaufsignale.map(s =>
-                        `<div class="signal-item">${s.replace(/<[^>]+>/g, '').trim()}</div>`
+                        `<div class="signal-item" style="border-left:3px solid #3fb950;">${s.replace(/<[^>]+>/g, '').trim()}</div>`
                     ).join('');
                 }
 
@@ -235,7 +375,7 @@
                     verkaufDiv.innerHTML = '<p class="leer">Keine Verkaufssignale beim letzten Scan</p>';
                 } else {
                     verkaufDiv.innerHTML = d.verkaufsignale.map(s =>
-                        `<div class="signal-item" style="border-left: 3px solid #f85149;">${s.replace(/<[^>]+>/g, '').trim()}</div>`
+                        `<div class="signal-item" style="border-left:3px solid #f85149;">${s.replace(/<[^>]+>/g, '').trim()}</div>`
                     ).join('');
                 }
 
