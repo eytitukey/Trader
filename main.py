@@ -5,19 +5,24 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
+from alpaca.data.historical.news import NewsClient
+from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest, NewsRequest
 from alpaca.data.timeframe import TimeFrame
 from datetime import datetime, timedelta
 import json
+import openai
 
 API_KEY = os.environ.get("ALPACA_KEY")
 SECRET_KEY = os.environ.get("ALPACA_SECRET")
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT")
+OPENAI_KEY = os.environ.get("OPENAI_KEY")
 
 trading_client = TradingClient(API_KEY, SECRET_KEY, paper=True)
 data_client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 crypto_data_client = CryptoHistoricalDataClient(API_KEY, SECRET_KEY)
+news_client = NewsClient(API_KEY, SECRET_KEY)
+openai_client = openai.OpenAI(api_key=OPENAI_KEY)
 
 AKTIEN = [
     "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN",
@@ -81,6 +86,69 @@ def speichere_ergebnisse(ergebnisse):
     os.makedirs("docs", exist_ok=True)
     with open("docs/data.json", "w") as f:
         json.dump(ergebnisse, f, ensure_ascii=False)
+
+# ─────────────────────────────────────────
+# NEWS & SENTIMENT
+# ─────────────────────────────────────────
+def get_news(symbol, limit=5):
+    try:
+        # Krypto Symbol anpassen
+        clean_symbol = symbol.replace("/USD", "")
+        request = NewsRequest(
+            symbols=[clean_symbol],
+            limit=limit,
+            start=datetime.now() - timedelta(hours=24)
+        )
+        news = news_client.get_news(request)
+        headlines = [n.headline for n in news.news if n.headline]
+        return headlines[:5]
+    except:
+        return []
+
+def analysiere_sentiment(symbol, headlines):
+    if not headlines:
+        return "NEUTRAL", 50, "Keine News verfügbar", []
+
+    try:
+        headlines_text = "\n".join([f"- {h}" for h in headlines])
+
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            max_tokens=200,
+            messages=[{
+                "role": "system",
+                "content": "Du bist ein präziser Finanz-Analyst. Antworte NUR mit validem JSON, kein Markdown, keine Erklärungen."
+            }, {
+                "role": "user",
+                "content": f"""Analysiere diese Finanz-Headlines für {symbol}:
+
+{headlines_text}
+
+Antworte NUR mit diesem JSON Format:
+{{"sentiment": "POSITIV", "score": 75, "grund": "Starke Quartalszahlen erwartet"}}
+
+Sentiment: POSITIV (score 60-100) / NEGATIV (score 0-40) / NEUTRAL (score 41-59)"""
+            }]
+        )
+
+        text = response.choices[0].message.content.strip()
+        text = text.replace("```json", "").replace("```", "").strip()
+        result = json.loads(text)
+
+        sentiment = result.get("sentiment", "NEUTRAL")
+        score = int(result.get("score", 50))
+        grund = result.get("grund", "")
+
+        return sentiment, score, grund, headlines
+
+    except Exception as e:
+        print(f"   ⚠️ Sentiment Fehler: {e}")
+        return "NEUTRAL", 50, "Analyse fehlgeschlagen", headlines
+
+def sentiment_emoji(sentiment):
+    if sentiment == "POSITIV": return "🟢"
+    if sentiment == "NEGATIV": return "🔴"
+    return "⏳"
 
 # ─────────────────────────────────────────
 # KURSDATEN
@@ -228,7 +296,6 @@ def erkenne_markt_regime(bars_dict):
     empfehlungen = []
     warnungen = []
 
-    # S&P500 Trend
     if "SPY" in bars_dict and bars_dict["SPY"]:
         spy_trend = berechne_trend(bars_dict["SPY"])
         spy_rsi = berechne_rsi(bars_dict["SPY"])
@@ -239,60 +306,53 @@ def erkenne_markt_regime(bars_dict):
             regime.append("📉 Bearish Aktienmarkt")
             empfehlungen.append("⚠️ Vorsicht bei Aktien-Käufen")
 
-    # USD Stärke
     if "UUP" in bars_dict and bars_dict["UUP"]:
         uup_kurs = bars_dict["UUP"][-1].close
         uup_ma = berechne_ma(bars_dict["UUP"], 20)
-        usd_stark = uup_kurs > uup_ma
-        if usd_stark:
+        if uup_kurs > uup_ma:
             regime.append("💵 USD stark")
             empfehlungen.append("⚠️ USD stark → Druck auf Gold & BTC")
         else:
             regime.append("💵 USD schwach")
             empfehlungen.append("✅ USD schwach → Rückenwind für Gold & BTC")
 
-    # Gold Signal
     if "GLD" in bars_dict and bars_dict["GLD"]:
-        gld_trend = berechne_trend(bars_dict["GLD"])
-        if gld_trend:
+        if berechne_trend(bars_dict["GLD"]):
             regime.append("🥇 Gold im Aufwärtstrend")
             empfehlungen.append("⚠️ Gold steigt → Risikoaversion im Markt")
 
-    # Öl Signal
     if "USO" in bars_dict and bars_dict["USO"]:
-        uso_trend = berechne_trend(bars_dict["USO"])
-        uso_rsi = berechne_rsi(bars_dict["USO"])
-        if uso_trend and uso_rsi > 60:
+        if berechne_trend(bars_dict["USO"]) and berechne_rsi(bars_dict["USO"]) > 60:
             regime.append("🛢️ Öl überkauft")
             empfehlungen.append("⚠️ Öl stark → Inflationsdruck steigt")
 
-    # BTC Dominanz
     if "BTC/USD" in bars_dict and bars_dict["BTC/USD"]:
-        btc_trend = berechne_trend(bars_dict["BTC/USD"])
-        if btc_trend:
+        if berechne_trend(bars_dict["BTC/USD"]):
             regime.append("₿ BTC im Aufwärtstrend")
             empfehlungen.append("✅ BTC bullish → Altcoins könnten folgen")
         else:
             regime.append("₿ BTC im Abwärtstrend")
             empfehlungen.append("⚠️ BTC bearish → Vorsicht bei Altcoins")
 
-    # Korrelations-Warnungen
-    if "SPY" in bars_dict and "BTC/USD" in bars_dict and bars_dict["SPY"] and bars_dict["BTC/USD"]:
-        korr = berechne_korrelation(bars_dict["SPY"], bars_dict["BTC/USD"])
-        if korr < -0.5:
-            warnungen.append(f"🚨 BTC läuft gegen S&P500 (Korr: {korr}) – ungewöhnlich!")
-        elif korr > 0.8:
-            warnungen.append(f"📊 BTC & S&P500 sehr synchron (Korr: {korr})")
+    if "SPY" in bars_dict and "BTC/USD" in bars_dict:
+        if bars_dict["SPY"] and bars_dict["BTC/USD"]:
+            korr = berechne_korrelation(bars_dict["SPY"], bars_dict["BTC/USD"])
+            if korr < -0.5:
+                warnungen.append(f"🚨 BTC läuft gegen S&P500 (Korr: {korr})")
+            elif korr > 0.8:
+                warnungen.append(f"📊 BTC & S&P500 sehr synchron (Korr: {korr})")
 
-    if "GLD" in bars_dict and "UUP" in bars_dict and bars_dict["GLD"] and bars_dict["UUP"]:
-        korr = berechne_korrelation(bars_dict["GLD"], bars_dict["UUP"])
-        if korr > 0.4:
-            warnungen.append(f"🚨 Gold & USD steigen zusammen (Korr: {korr}) – Krisenzeichen!")
+    if "GLD" in bars_dict and "UUP" in bars_dict:
+        if bars_dict["GLD"] and bars_dict["UUP"]:
+            korr = berechne_korrelation(bars_dict["GLD"], bars_dict["UUP"])
+            if korr > 0.4:
+                warnungen.append(f"🚨 Gold & USD steigen zusammen (Korr: {korr})")
 
-    if "USO" in bars_dict and "GLD" in bars_dict and bars_dict["USO"] and bars_dict["GLD"]:
-        korr = berechne_korrelation(bars_dict["USO"], bars_dict["GLD"])
-        if korr > 0.6:
-            warnungen.append(f"⚠️ Öl & Gold korrelieren stark (Korr: {korr}) – Inflationsdruck!")
+    if "USO" in bars_dict and "GLD" in bars_dict:
+        if bars_dict["USO"] and bars_dict["GLD"]:
+            korr = berechne_korrelation(bars_dict["USO"], bars_dict["GLD"])
+            if korr > 0.6:
+                warnungen.append(f"⚠️ Öl & Gold korrelieren stark (Korr: {korr})")
 
     return regime, empfehlungen, warnungen
 
@@ -307,7 +367,6 @@ def korrelations_analyse(bars_dict):
         ("BTC/USD", "ETH/USD", "BTC ↔ ETH"),
         ("QQQ",     "BTC/USD", "Nasdaq ↔ BTC"),
     ]
-
     ergebnisse = []
     for sym1, sym2, label in paare:
         if sym1 in bars_dict and sym2 in bars_dict:
@@ -401,7 +460,7 @@ def hat_position(symbol):
     except:
         return False, 0
 
-def kaufen(symbol, kurs):
+def order_kaufen(symbol, kurs):
     sl = round(kurs * (1 - STOP_LOSS), 2)
     tp = round(kurs * (1 + TAKE_PROFIT), 2)
     order = MarketOrderRequest(
@@ -412,7 +471,7 @@ def kaufen(symbol, kurs):
     print(f"   ✅ GEKAUFT @ ${kurs:.2f}")
     return sl, tp
 
-def verkaufen(symbol):
+def order_verkaufen(symbol):
     order = MarketOrderRequest(
         symbol=symbol, qty=MENGE,
         side=OrderSide.SELL, time_in_force=TimeInForce.GTC
@@ -434,6 +493,7 @@ def pruefe_sl_tp(symbol, kurs, einstieg):
 def scan(symbole, krypto=False):
     starke_kaufsignale = []
     starke_verkaufsignale = []
+    news_zusammenfassung = []
 
     typ = "KRYPTO" if krypto else "AKTIEN"
     print(f"\n{'='*45}")
@@ -452,42 +512,75 @@ def scan(symbole, krypto=False):
         kauf_score, verkauf_score = confluence_score(signale)
         position, einstieg = hat_position(symbol)
 
-        print(f"   Kurs: ${kurs:.2f} | 🟢 {kauf_score}/7 Kauf | 🔴 {verkauf_score}/7 Verkauf")
+        # News & Sentiment
+        headlines = get_news(symbol)
+        sentiment, sentiment_score, grund, _ = analysiere_sentiment(symbol, headlines)
+        print(f"   Kurs: ${kurs:.2f} | 🟢 {kauf_score}/7 | 📰 {sentiment} ({sentiment_score})")
 
+        # News für Website speichern
+        if headlines:
+            news_zusammenfassung.append({
+                "symbol": symbol,
+                "sentiment": sentiment,
+                "score": sentiment_score,
+                "grund": grund,
+                "headlines": headlines[:3]
+            })
+
+        # Stop Loss / Take Profit prüfen
         if position:
             aktion, pct = pruefe_sl_tp(symbol, kurs, einstieg)
             if aktion == "verkaufen":
-                verkaufen(symbol)
-                grund = "🛑 Stop Loss" if pct < 0 else "🎯 Take Profit"
-                starke_verkaufsignale.append(f"🔴 {symbol}: {grund} ({pct:+.1f}%)")
+                order_verkaufen(symbol)
+                grund_sl = "🛑 Stop Loss" if pct < 0 else "🎯 Take Profit"
+                starke_verkaufsignale.append(f"🔴 {symbol}: {grund_sl} ({pct:+.1f}%)")
             else:
                 print(f"   ⏳ HALTEN | G&V: {pct:+.1f}%")
 
-        elif kauf_score >= 3:
-            sl, tp = kaufen(symbol, kurs)
+        # Kaufsignal: Technisch UND Sentiment positiv
+        elif kauf_score >= 5 and sentiment in ["POSITIV", "NEUTRAL"]:
+            sl, tp = order_kaufen(symbol, kurs)
             zeile = (
                 f"🟢 <b>{symbol}</b> – {kauf_score}/7 KAUFEN {sterne(kauf_score)}\n"
                 f"   💰 ${kurs:.2f} | SL: ${sl} | TP: ${tp}\n"
+                f"   📰 News: {sentiment} ({sentiment_score}/100) – {grund}\n"
             )
             for ind, (sig, detail) in signale.items():
                 emoji = "✅" if sig == "KAUFEN" else "❌" if sig == "VERKAUFEN" else "➖"
                 zeile += f"   {emoji} {ind}: {sig} ({detail})\n"
             starke_kaufsignale.append(zeile)
 
-        elif verkauf_score >= 3 and position:
-            verkaufen(symbol)
+        # Kaufsignal blockiert wegen negativen News
+        elif kauf_score >= 5 and sentiment == "NEGATIV":
+            print(f"   🚫 Kaufsignal blockiert – Negative News ({sentiment_score}/100): {grund}")
+            starke_verkaufsignale.append(
+                f"🚫 <b>{symbol}</b>: Kaufsignal blockiert\n"
+                f"   📰 Negative News ({sentiment_score}/100): {grund}"
+            )
+
+        # Verkaufssignal
+        elif verkauf_score >= 5 and position:
+            order_verkaufen(symbol)
             zeile = (
                 f"🔴 <b>{symbol}</b> – {verkauf_score}/7 VERKAUFEN {sterne(verkauf_score)}\n"
-                f"   💰 ${kurs:.2f}\n"
+                f"   💰 ${kurs:.2f} | 📰 {sentiment} ({sentiment_score}/100)\n"
             )
             starke_verkaufsignale.append(zeile)
+
+        # Sentiment allein sehr negativ → Warnung
+        elif sentiment == "NEGATIV" and sentiment_score < 25 and position:
+            print(f"   ⚠️ Sehr negative News für bestehende Position!")
+            starke_verkaufsignale.append(
+                f"⚠️ <b>{symbol}</b>: Sehr negative News!\n"
+                f"   📰 Score: {sentiment_score}/100 – {grund}"
+            )
 
         else:
             print(f"   ⏳ Kein starkes Signal")
 
-        time.sleep(0.3)
+        time.sleep(0.5)
 
-    return starke_kaufsignale, starke_verkaufsignale
+    return starke_kaufsignale, starke_verkaufsignale, news_zusammenfassung
 
 # ─────────────────────────────────────────
 # MARKTÜBERSICHT
@@ -500,19 +593,15 @@ def markt_uebersicht():
     markt_liste = []
     bars_dict = {}
 
-    # Alle Markt-Kursdaten laden
     for symbol, (emoji, name, krypto) in MARKT_ASSETS.items():
         bars = get_kursdaten(symbol, krypto)
         bars_dict[symbol] = bars
 
-    # Für Korrelation ETH auch laden
     bars_dict["ETH/USD"] = get_kursdaten("ETH/USD", krypto=True)
 
-    # Markt Regime & Korrelationen berechnen
     regime, empfehlungen, warnungen = erkenne_markt_regime(bars_dict)
     korrelationen = korrelations_analyse(bars_dict)
 
-    # Telegram Marktübersicht
     nachricht = f"🌍 <b>MARKTÜBERSICHT</b> – {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
     nachricht += "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
@@ -562,24 +651,20 @@ def markt_uebersicht():
 
         nachricht += "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
-    # Markt Regime
     nachricht += "\n🌡️ <b>MARKTREGIME</b>\n"
     for r in regime:
         nachricht += f"  {r}\n"
 
-    # Warnungen
     if warnungen:
         nachricht += "\n🚨 <b>WARNUNGEN</b>\n"
         for w in warnungen:
             nachricht += f"  {w}\n"
 
-    # Empfehlungen
     nachricht += "\n💡 <b>EMPFEHLUNGEN</b>\n"
     for e in empfehlungen:
         nachricht += f"  {e}\n"
 
-    # Korrelationen
-    nachricht += "\n🔗 <b>KORRELATIONEN (30 Tage)</b>\n"
+    nachricht += "\n🔗 <b>KORRELATIONEN</b>\n"
     for k in korrelationen:
         nachricht += f"  {k['label']}: {k['korrelation']} {k['beschreibung']}\n"
 
@@ -592,8 +677,8 @@ def markt_uebersicht():
 # MAIN
 # ─────────────────────────────────────────
 def main():
-    kauf_aktien, verkauf_aktien = scan(AKTIEN, krypto=False)
-    kauf_krypto, verkauf_krypto = scan(KRYPTOS, krypto=True)
+    kauf_aktien, verkauf_aktien, news_aktien = scan(AKTIEN, krypto=False)
+    kauf_krypto, verkauf_krypto, news_krypto = scan(KRYPTOS, krypto=True)
     markt_liste, regime, empfehlungen, warnungen, korrelationen = markt_uebersicht()
     account = trading_client.get_account()
 
@@ -606,7 +691,7 @@ def main():
         nachricht += "\n🟢 <b>STARKE KAUFSIGNALE – KRYPTO</b>\n"
         nachricht += "\n".join(kauf_krypto)
     if verkauf_aktien or verkauf_krypto:
-        nachricht += "\n🔴 <b>VERKAUFSSIGNALE</b>\n"
+        nachricht += "\n🔴 <b>VERKAUFS & WARNUNGEN</b>\n"
         nachricht += "\n".join(verkauf_aktien + verkauf_krypto)
     if not kauf_aktien and not kauf_krypto and not verkauf_aktien and not verkauf_krypto:
         nachricht += "⏳ Keine starken Signale gefunden\n"
@@ -662,7 +747,8 @@ def main():
         "regime": regime,
         "empfehlungen": empfehlungen,
         "warnungen": warnungen,
-        "korrelationen": korrelationen
+        "korrelationen": korrelationen,
+        "news": news_aktien + news_krypto
     }
     speichere_ergebnisse(ergebnisse)
 
