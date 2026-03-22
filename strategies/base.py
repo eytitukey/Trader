@@ -32,3 +32,9 @@ class BaseStrategy:
             "verkauf_score": verkauf_score,
             "summary_signal": self.summary_signal(kauf_score, verkauf_score),
         }
+
+    def should_buy(self, kauf_score, verkauf_score):
+        return kauf_score >= 5
+
+    def should_sell(self, kauf_score, verkauf_score):
+        return verkauf_score >= 5

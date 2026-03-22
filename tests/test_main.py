@@ -1,7 +1,10 @@
 import importlib
+import json
+import tempfile
 import sys
 import types
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 
@@ -61,6 +64,8 @@ def install_fake_dependencies():
 
 install_fake_dependencies()
 main = importlib.import_module("main")
+reporting = importlib.import_module("reporting")
+backtest = importlib.import_module("backtest")
 
 
 class Bar:
@@ -76,6 +81,15 @@ class MainTests(unittest.TestCase):
         strategy = main.get_strategy(main.CONFIG)
 
         self.assertEqual(strategy.name, "confluence_v1")
+
+    def test_strategy_loader_laed_mean_reversion_v1(self):
+        config = dict(main.CONFIG)
+        config["strategy"] = dict(main.CONFIG["strategy"])
+        config["strategy"]["name"] = "mean_reversion_v1"
+
+        strategy = main.get_strategy(config)
+
+        self.assertEqual(strategy.name, "mean_reversion_v1")
 
     def test_headline_passt_zu_symbol_filtert_irrelevante_titel(self):
         self.assertTrue(main.headline_passt_zu_symbol("PYPL", "PayPal launches new checkout features", main.CONFIG))
@@ -128,12 +142,53 @@ class MainTests(unittest.TestCase):
                  name="confluence_v1",
                  evaluate=lambda *_args, **_kwargs: analyse,
                  stars=lambda score, total=7: "⭐⭐⭐⭐☆",
+                 should_buy=lambda kauf, verkauf: kauf >= 5,
+                 should_sell=lambda kauf, verkauf: verkauf >= 5,
              )), \
              patch.object(main, "order_verkaufen") as order_verkaufen:
-            _, verkauf, _ = main.scan(["AAPL"], krypto=False, config=main.CONFIG)
+            _, verkauf, _, scan_results = main.scan(["AAPL"], krypto=False, config=main.CONFIG)
 
         order_verkaufen.assert_called_once_with("AAPL", 3.5, main.CONFIG)
         self.assertEqual(len(verkauf), 1)
+        self.assertEqual(scan_results[0]["action"], "SELL_SIGNAL")
+        self.assertEqual(scan_results[0]["strategy"], "confluence_v1")
+
+    def test_speichere_run_history_schreibt_json_liste(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            history_path = Path(tmpdir) / "history.json"
+            reporting.speichere_run_history({"run_id": "run-1"}, path=history_path)
+            reporting.speichere_run_history({"run_id": "run-2"}, path=history_path)
+
+            with open(history_path, "r", encoding="utf-8") as handle:
+                history = json.load(handle)
+
+        self.assertEqual([entry["run_id"] for entry in history], ["run-1", "run-2"])
+
+    def test_backtest_strategy_gibt_grundlegende_kennzahlen_zurueck(self):
+        bars = [Bar(close=float(i), high=float(i) + 1, low=float(i) - 1, volume=100 + i) for i in range(1, 80)]
+        config = dict(main.CONFIG)
+        config["strategy"] = dict(main.CONFIG["strategy"])
+        config["strategy"]["name"] = "mean_reversion_v1"
+
+        with patch("backtest.get_strategy", return_value=types.SimpleNamespace(
+            name="mean_reversion_v1",
+            evaluate=lambda window, _config: {
+                "kurs": float(window[-1].close),
+                "kauf_score": 3 if len(window) == 51 else 0,
+                "verkauf_score": 3 if len(window) == 60 else 0,
+                "signale": {},
+                "summary_signal": "🟢 KAUFEN",
+            },
+            should_buy=lambda kauf, verkauf: kauf >= 3,
+            should_sell=lambda kauf, verkauf: verkauf >= 3,
+        )):
+            result = backtest.backtest_strategy("AAPL", bars, config, initial_cash=1000)
+
+        self.assertEqual(result["mode"], "backtest")
+        self.assertEqual(result["symbol"], "AAPL")
+        self.assertGreaterEqual(result["trade_count"], 2)
+        self.assertIn("final_equity", result)
+        self.assertIn("max_drawdown_pct", result)
 
 
 if __name__ == "__main__":

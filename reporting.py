@@ -1,11 +1,14 @@
 import json
 import os
+from pathlib import Path
 
 import requests
 
 
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT")
+HISTORY_PATH = Path("data/history.json")
+MAX_HISTORY_RUNS = 200
 
 
 def sende_telegram(nachricht, config):
@@ -26,6 +29,22 @@ def speichere_ergebnisse(ergebnisse, config):
     os.makedirs("docs", exist_ok=True)
     with open("docs/data.json", "w", encoding="utf-8") as handle:
         json.dump(ergebnisse, handle, ensure_ascii=False)
+
+
+def speichere_run_history(run_record, path=HISTORY_PATH):
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.exists():
+        with open(path, "r", encoding="utf-8") as handle:
+            history = json.load(handle)
+    else:
+        history = []
+
+    history.append(run_record)
+    history = history[-MAX_HISTORY_RUNS:]
+
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(history, handle, ensure_ascii=False)
 
 
 def baue_positionen_liste(positionen):

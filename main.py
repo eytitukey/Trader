@@ -1,12 +1,13 @@
 from datetime import datetime
 import time
+from uuid import uuid4
 
 import execution
 import indicators
 import market_data
 from config import load_config
 from execution import trading_client
-from reporting import baue_positionen_liste, sende_telegram, speichere_ergebnisse
+from reporting import baue_positionen_liste, sende_telegram, speichere_ergebnisse, speichere_run_history
 from strategies import get_strategy
 
 
@@ -40,18 +41,20 @@ def berechne_signale(bars, config=CONFIG):
     return strategy.build_signals(bars, config)
 
 
-def confluence_score(signale):
-    strategy = get_strategy(CONFIG)
+def confluence_score(signale, config=CONFIG):
+    strategy = get_strategy(config)
     return strategy.score_signals(signale)
 
 
-def sterne(score, total=7):
-    strategy = get_strategy(CONFIG)
+def sterne(score, total=None, config=CONFIG):
+    strategy = get_strategy(config)
+    if total is None:
+        return strategy.stars(score)
     return strategy.stars(score, total)
 
 
-def signal_emoji(kauf, verkauf):
-    strategy = get_strategy(CONFIG)
+def signal_emoji(kauf, verkauf, config=CONFIG):
+    strategy = get_strategy(config)
     return strategy.summary_signal(kauf, verkauf)
 
 
@@ -135,10 +138,44 @@ def korrelations_analyse(bars_dict):
     return ergebnisse
 
 
+def baue_scan_result(symbol, asset_type, strategy_name, analyse, sentiment, sentiment_score, grund, headlines, position, action):
+    return {
+        "symbol": symbol,
+        "asset_type": asset_type,
+        "strategy": strategy_name,
+        "action": action,
+        "kurs": round(analyse["kurs"], 2),
+        "kauf_score": analyse["kauf_score"],
+        "verkauf_score": analyse["verkauf_score"],
+        "summary_signal": analyse["summary_signal"],
+        "position_open": position,
+        "sentiment": {
+            "label": sentiment,
+            "score": sentiment_score,
+            "grund": grund,
+            "headlines": headlines[:3],
+        },
+        "signale": {
+            name: {"signal": signal, "detail": detail}
+            for name, (signal, detail) in analyse["signale"].items()
+        },
+    }
+
+
+def baue_run_metrics(kauf_aktien, kauf_krypto, verkauf_aktien, verkauf_krypto, positionen, scan_results):
+    return {
+        "buy_signals": len(kauf_aktien) + len(kauf_krypto),
+        "sell_signals": len(verkauf_aktien) + len(verkauf_krypto),
+        "open_positions": len(positionen),
+        "scanned_assets": len(scan_results),
+    }
+
+
 def scan(symbole, krypto=False, config=CONFIG):
     starke_kaufsignale = []
     starke_verkaufsignale = []
     news_zusammenfassung = []
+    scan_results = []
     strategy = get_strategy(config)
 
     typ = "KRYPTO" if krypto else "AKTIEN"
@@ -163,6 +200,7 @@ def scan(symbole, krypto=False, config=CONFIG):
         headlines = get_news(symbol, config)
         sentiment, sentiment_score, grund, _ = analysiere_sentiment(symbol, headlines)
         print(f"   Kurs: ${kurs:.2f} | 🟢 {kauf_score}/7 | 📰 {sentiment} ({sentiment_score})")
+        action = "HOLD"
 
         if headlines:
             news_zusammenfassung.append({
@@ -179,24 +217,28 @@ def scan(symbole, krypto=False, config=CONFIG):
                 order_verkaufen(symbol, qty, config)
                 grund_sl = "🛑 Stop Loss" if pct < 0 else "🎯 Take Profit"
                 starke_verkaufsignale.append(f"🔴 {symbol}: {grund_sl} ({pct:+.1f}%)")
-            elif verkauf_score >= 5:
+                action = "SELL_SLTP"
+            elif strategy.should_sell(kauf_score, verkauf_score):
                 order_verkaufen(symbol, qty, config)
                 starke_verkaufsignale.append(
-                    f"🔴 <b>{symbol}</b> – {verkauf_score}/7 VERKAUFEN {sterne(verkauf_score)}\n"
+                    f"🔴 <b>{symbol}</b> – {verkauf_score} VERKAUFEN {sterne(verkauf_score, config=config)}\n"
                     f"   💰 ${kurs:.2f} | 📰 {sentiment} ({sentiment_score}/100)\n"
                 )
+                action = "SELL_SIGNAL"
             elif sentiment == "NEGATIV" and sentiment_score < 25:
                 print("   ⚠️ Sehr negative News für bestehende Position!")
                 starke_verkaufsignale.append(
                     f"⚠️ <b>{symbol}</b>: Sehr negative News!\n"
                     f"   📰 Score: {sentiment_score}/100 – {grund}"
                 )
+                action = "WARN_NEGATIVE_NEWS"
             else:
                 print(f"   ⏳ HALTEN | G&V: {pct:+.1f}%")
-        elif kauf_score >= 5 and sentiment in ["POSITIV", "NEUTRAL"]:
+                action = "HOLD_POSITION"
+        elif strategy.should_buy(kauf_score, verkauf_score) and sentiment in ["POSITIV", "NEUTRAL"]:
             sl, tp = order_kaufen(symbol, kurs, config)
             zeile = (
-                f"🟢 <b>{symbol}</b> – {kauf_score}/7 KAUFEN {sterne(kauf_score)}\n"
+                f"🟢 <b>{symbol}</b> – {kauf_score} KAUFEN {sterne(kauf_score, config=config)}\n"
                 f"   💰 ${kurs:.2f} | SL: ${sl} | TP: ${tp}\n"
                 f"   📰 News: {sentiment} ({sentiment_score}/100) – {grund}\n"
             )
@@ -204,18 +246,36 @@ def scan(symbole, krypto=False, config=CONFIG):
                 emoji = "✅" if sig == "KAUFEN" else "❌" if sig == "VERKAUFEN" else "➖"
                 zeile += f"   {emoji} {ind}: {sig} ({detail})\n"
             starke_kaufsignale.append(zeile)
-        elif kauf_score >= 5 and sentiment == "NEGATIV":
+            action = "BUY_SIGNAL"
+        elif strategy.should_buy(kauf_score, verkauf_score) and sentiment == "NEGATIV":
             print(f"   🚫 Kaufsignal blockiert – Negative News ({sentiment_score}/100): {grund}")
             starke_verkaufsignale.append(
                 f"🚫 <b>{symbol}</b>: Kaufsignal blockiert\n"
                 f"   📰 Negative News ({sentiment_score}/100): {grund}"
             )
+            action = "BLOCKED_NEGATIVE_NEWS"
         else:
             print("   ⏳ Kein starkes Signal")
+            action = "NO_SIGNAL"
+
+        scan_results.append(
+            baue_scan_result(
+                symbol=symbol,
+                asset_type="crypto" if krypto else "stock",
+                strategy_name=strategy.name,
+                analyse=analyse,
+                sentiment=sentiment,
+                sentiment_score=sentiment_score,
+                grund=grund,
+                headlines=headlines,
+                position=position,
+                action=action,
+            )
+        )
 
         time.sleep(0.5)
 
-    return starke_kaufsignale, starke_verkaufsignale, news_zusammenfassung
+    return starke_kaufsignale, starke_verkaufsignale, news_zusammenfassung, scan_results
 
 
 def markt_uebersicht(config=CONFIG):
@@ -302,8 +362,9 @@ def markt_uebersicht(config=CONFIG):
 
 def main(config=None):
     runtime_config = config or load_config()
-    kauf_aktien, verkauf_aktien, news_aktien = scan(runtime_config["universes"]["stocks"], False, runtime_config)
-    kauf_krypto, verkauf_krypto, news_krypto = scan(runtime_config["universes"]["crypto"], True, runtime_config)
+    run_id = uuid4().hex
+    kauf_aktien, verkauf_aktien, news_aktien, scan_aktien = scan(runtime_config["universes"]["stocks"], False, runtime_config)
+    kauf_krypto, verkauf_krypto, news_krypto, scan_krypto = scan(runtime_config["universes"]["crypto"], True, runtime_config)
     markt_liste, regime, empfehlungen, warnungen, korrelationen = markt_uebersicht(runtime_config)
     account = trading_client.get_account()
 
@@ -341,7 +402,10 @@ def main(config=None):
     print("=" * 45)
 
     sende_telegram(nachricht, runtime_config)
+    scan_results = scan_aktien + scan_krypto
+    run_metrics = baue_run_metrics(kauf_aktien, kauf_krypto, verkauf_aktien, verkauf_krypto, positionen, scan_results)
     ergebnisse = {
+        "run_id": run_id,
         "zeitpunkt": datetime.now().strftime("%d.%m.%Y %H:%M"),
         "portfolio": str(account.portfolio_value),
         "kontostand": str(account.cash),
@@ -354,12 +418,23 @@ def main(config=None):
         "warnungen": warnungen,
         "korrelationen": korrelationen,
         "news": news_aktien + news_krypto,
+        "scan_results": scan_results,
+        "metrics": run_metrics,
         "config": {
             "trading_mode": runtime_config["trading_mode"],
             "strategy": runtime_config["strategy"]["name"],
         },
     }
     speichere_ergebnisse(ergebnisse, runtime_config)
+    speichere_run_history({
+        "run_id": run_id,
+        "zeitpunkt": ergebnisse["zeitpunkt"],
+        "portfolio": ergebnisse["portfolio"],
+        "kontostand": ergebnisse["kontostand"],
+        "metrics": run_metrics,
+        "config": ergebnisse["config"],
+        "scan_results": scan_results,
+    })
 
 
 if __name__ == "__main__":
