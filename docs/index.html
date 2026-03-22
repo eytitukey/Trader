@@ -220,6 +220,15 @@
     <script>
         let touchMoved = false;
 
+        function esc(text) {
+            return String(text ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function signalBadge(signal) {
             if (signal.includes("KAUFEN"))    return `<span class="badge badge-gruen">${signal}</span>`;
             if (signal.includes("VERKAUFEN")) return `<span class="badge badge-rot">${signal}</span>`;
@@ -397,17 +406,17 @@
                 // Regime
                 document.getElementById('regime').innerHTML = !d.regime || d.regime.length === 0
                     ? '<p class="leer">Keine Daten</p>'
-                    : d.regime.map(r => `<div class="regime-item">${r}</div>`).join('');
+                    : d.regime.map(r => `<div class="regime-item">${esc(r)}</div>`).join('');
 
                 // Warnungen
                 document.getElementById('warnungen').innerHTML = !d.warnungen || d.warnungen.length === 0
                     ? '<p class="leer">✅ Keine Warnungen</p>'
-                    : d.warnungen.map(w => `<div class="warnung-item">${w}</div>`).join('');
+                    : d.warnungen.map(w => `<div class="warnung-item">${esc(w)}</div>`).join('');
 
                 // Empfehlungen
                 document.getElementById('empfehlungen').innerHTML = !d.empfehlungen || d.empfehlungen.length === 0
                     ? '<p class="leer">Keine Empfehlungen</p>'
-                    : d.empfehlungen.map(e => `<div class="empfehlung-item">${e}</div>`).join('');
+                    : d.empfehlungen.map(e => `<div class="empfehlung-item">${esc(e)}</div>`).join('');
 
                 // Korrelationen
                 const korrTbody = document.getElementById('korrelationen');
@@ -417,9 +426,9 @@
                     korrTbody.innerHTML = d.korrelationen.map(k => {
                         const farbe = korrFarbe(k.korrelation);
                         return `<tr>
-                            <td><b>${k.label}</b></td>
-                            <td style="color:${farbe}; font-weight:bold;">${k.korrelation}</td>
-                            <td>${k.beschreibung}</td>
+                            <td><b>${esc(k.label)}</b></td>
+                            <td style="color:${farbe}; font-weight:bold;">${esc(k.korrelation)}</td>
+                            <td>${esc(k.beschreibung)}</td>
                             <td><div class="korr-bar-wrap"><div class="korr-bar-bg">
                                 <div class="korr-bar" style="width:${Math.abs(k.korrelation)*100}%; background:${farbe};"></div>
                             </div></div></td>
@@ -437,13 +446,13 @@
                         const tr = document.createElement('tr');
                         tr.className = 'klickbar';
                         tr.innerHTML = `
-                            <td><b>${m.emoji} ${m.name}</b></td>
+                            <td><b>${esc(m.emoji)} ${esc(m.name)}</b></td>
                             <td>$${parseFloat(m.kurs).toLocaleString('de-CH', {minimumFractionDigits: 2})}</td>
-                            <td>${m.rsi}</td>
-                            <td>${m.trend}</td>
+                            <td>${esc(m.rsi)}</td>
+                            <td>${esc(m.trend)}</td>
                             <td>${signalBadge(m.signal)}</td>
-                            <td class="gruen">$${m.support}</td>
-                            <td class="rot">$${m.resistance}</td>
+                            <td class="gruen">$${esc(m.support)}</td>
+                            <td class="rot">$${esc(m.resistance)}</td>
                         `;
                         zeilenKlick(tr, m.symbol, m);
                         marktTbody.appendChild(tr);
@@ -458,16 +467,16 @@
                     newsDiv.innerHTML = d.news.map(n => `
                         <div class="news-item">
                             <div class="news-header">
-                                <span class="news-symbol">${n.symbol}</span>
+                                <span class="news-symbol">${esc(n.symbol)}</span>
                                 <div style="display:flex; align-items:center; gap:8px;">
                                     ${sentimentBadge(n.sentiment)}
-                                    <span class="grau" style="font-size:12px;">${n.score}/100</span>
+                                    <span class="grau" style="font-size:12px;">${esc(n.score)}/100</span>
                                 </div>
                             </div>
                             <div style="color:#8b949e; font-size:12px; margin-bottom:6px; font-style:italic;">
-                                💬 ${n.grund}
+                                💬 ${esc(n.grund)}
                             </div>
-                            ${(n.headlines || []).map(h => `<div class="news-headline">📰 ${h}</div>`).join('')}
+                            ${(n.headlines || []).map(h => `<div class="news-headline">📰 ${esc(h)}</div>`).join('')}
                         </div>`).join('');
                 }
 
@@ -504,8 +513,8 @@
                         const tr = document.createElement('tr');
                         tr.className = 'klickbar';
                         tr.innerHTML = `
-                            <td><b>${p.symbol}</b></td>
-                            <td>${p.qty}</td>
+                            <td><b>${esc(p.symbol)}</b></td>
+                            <td>${esc(p.qty)}</td>
                             <td>$${parseFloat(p.einstieg).toFixed(2)}</td>
                             <td>$${parseFloat(p.kurs).toFixed(2)}</td>
                             <td class="${cls}">$${pl.toFixed(2)}</td>

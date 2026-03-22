@@ -1,16 +1,15 @@
 import os
+import json
 import requests
 import time
+import openai
+from datetime import datetime, timedelta
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import MarketOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
-from alpaca.data.historical.news import NewsClient
-from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest, NewsRequest
+from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame
-from datetime import datetime, timedelta
-import json
-import openai
 
 API_KEY = os.environ.get("ALPACA_KEY")
 SECRET_KEY = os.environ.get("ALPACA_SECRET")
@@ -23,7 +22,6 @@ NEWS_API_KEY = os.environ.get("NEWS_KEY")
 trading_client = TradingClient(API_KEY, SECRET_KEY, paper=True)
 data_client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 crypto_data_client = CryptoHistoricalDataClient(API_KEY, SECRET_KEY)
-news_client = NewsClient(API_KEY, SECRET_KEY)
 openai_client = openai.OpenAI(api_key=OPENAI_KEY)
 
 AKTIEN = [
@@ -77,9 +75,10 @@ def sende_telegram(nachricht):
     try:
         url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
         data = {"chat_id": TELEGRAM_CHAT_ID, "text": nachricht, "parse_mode": "HTML"}
-        requests.post(url, data=data)
-    except:
-        print("⚠️ Telegram Fehler")
+        response = requests.post(url, data=data, timeout=10)
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        print(f"⚠️ Telegram Fehler: {exc}")
 
 # ─────────────────────────────────────────
 # DASHBOARD
@@ -98,6 +97,26 @@ NEWS_SYMBOLE = [
     "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN",
     "META", "TSLA", "JPM", "BTC/USD", "ETH/USD", "PYPL"
 ]
+
+NEWS_KEYWORDS = {
+    "AAPL": ["aapl", "apple", "iphone", "ipad", "macbook"],
+    "MSFT": ["msft", "microsoft", "azure", "windows", "xbox"],
+    "NVDA": ["nvda", "nvidia", "geforce", "cuda"],
+    "GOOGL": ["googl", "google", "alphabet", "youtube", "gemini"],
+    "AMZN": ["amzn", "amazon", "aws", "prime"],
+    "META": ["meta", "facebook", "instagram", "whatsapp", "threads"],
+    "TSLA": ["tsla", "tesla", "elon musk", "model 3", "model y"],
+    "JPM": ["jpm", "jpmorgan", "jp morgan", "jamie dimon"],
+    "PYPL": ["pypl", "paypal", "venmo"],
+    "BTC/USD": ["btc", "bitcoin", "btc/usd"],
+    "ETH/USD": ["eth", "ethereum", "ether", "eth/usd"],
+}
+
+
+def headline_passt_zu_symbol(symbol, title):
+    text = (title or "").lower()
+    keywords = NEWS_KEYWORDS.get(symbol, [symbol.replace("/USD", "").lower()])
+    return any(keyword in text for keyword in keywords)
 
 
 def get_news(symbol, limit=5):
@@ -122,7 +141,9 @@ def get_news(symbol, limit=5):
 
         headlines = [
             a["title"] for a in data.get("articles", [])
-            if a.get("title") and "[Removed]" not in a["title"]
+            if a.get("title")
+            and "[Removed]" not in a["title"]
+            and headline_passt_zu_symbol(symbol, a["title"])
         ]
         print(f"   📰 {len(headlines)} Headlines gefunden")
         return headlines[:5]
@@ -199,7 +220,8 @@ def get_kursdaten(symbol, krypto=False):
             )
             bars = data_client.get_stock_bars(request)
         return bars[symbol]
-    except:
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        print(f"   ⚠️ Kursdaten Fehler für {symbol}: {exc}")
         return None
 
 # ─────────────────────────────────────────
@@ -232,10 +254,23 @@ def berechne_macd(bars):
         for preis in daten[1:]:
             ema_wert = preis * k + ema_wert * (1 - k)
         return ema_wert
-    ema12 = ema(preise, 12)
-    ema26 = ema(preise, 26)
-    macd_linie = ema12 - ema26
-    signal_linie = ema(preise[-9:], 9)
+
+    ema12_werte = []
+    ema26_werte = []
+    ema12 = preise[0]
+    ema26 = preise[0]
+    k12 = 2 / (12 + 1)
+    k26 = 2 / (26 + 1)
+
+    for preis in preise:
+        ema12 = preis * k12 + ema12 * (1 - k12)
+        ema26 = preis * k26 + ema26 * (1 - k26)
+        ema12_werte.append(ema12)
+        ema26_werte.append(ema26)
+
+    macd_serie = [ema12_werte[i] - ema26_werte[i] for i in range(len(preise))]
+    macd_linie = macd_serie[-1]
+    signal_linie = ema(macd_serie[-9:], 9)
     return round(macd_linie, 4), round(signal_linie, 4)
 
 def berechne_bollinger(bars, periode=20):
@@ -306,7 +341,7 @@ def berechne_korrelation(bars1, bars2, tage=30):
         if nenner1 * nenner2 == 0:
             return 0
         return round(zaehler / (nenner1 * nenner2), 2)
-    except:
+    except (TypeError, ValueError, ZeroDivisionError, AttributeError):
         return 0
 
 def korrelation_label(k):
@@ -483,9 +518,9 @@ def signal_emoji(kauf, verkauf):
 def hat_position(symbol):
     try:
         pos = trading_client.get_open_position(symbol)
-        return True, float(pos.avg_entry_price)
-    except:
-        return False, 0
+        return True, float(pos.avg_entry_price), float(pos.qty)
+    except Exception:
+        return False, 0, 0
 
 def order_kaufen(symbol, kurs):
     sl = round(kurs * (1 - STOP_LOSS), 2)
@@ -498,13 +533,13 @@ def order_kaufen(symbol, kurs):
     print(f"   ✅ GEKAUFT @ ${kurs:.2f}")
     return sl, tp
 
-def order_verkaufen(symbol):
+def order_verkaufen(symbol, qty):
     order = MarketOrderRequest(
-        symbol=symbol, qty=MENGE,
+        symbol=symbol, qty=qty,
         side=OrderSide.SELL, time_in_force=TimeInForce.GTC
     )
     trading_client.submit_order(order)
-    print(f"   🔴 VERKAUFT")
+    print(f"   🔴 VERKAUFT {qty}")
 
 def pruefe_sl_tp(symbol, kurs, einstieg):
     pct = (kurs - einstieg) / einstieg * 100
@@ -537,7 +572,7 @@ def scan(symbole, krypto=False):
 
         signale, kurs = berechne_signale(bars)
         kauf_score, verkauf_score = confluence_score(signale)
-        position, einstieg = hat_position(symbol)
+        position, einstieg, qty = hat_position(symbol)
 
         # News & Sentiment
         headlines = get_news(symbol)
@@ -558,9 +593,22 @@ def scan(symbole, krypto=False):
         if position:
             aktion, pct = pruefe_sl_tp(symbol, kurs, einstieg)
             if aktion == "verkaufen":
-                order_verkaufen(symbol)
+                order_verkaufen(symbol, qty)
                 grund_sl = "🛑 Stop Loss" if pct < 0 else "🎯 Take Profit"
                 starke_verkaufsignale.append(f"🔴 {symbol}: {grund_sl} ({pct:+.1f}%)")
+            elif verkauf_score >= 5:
+                order_verkaufen(symbol, qty)
+                zeile = (
+                    f"🔴 <b>{symbol}</b> – {verkauf_score}/7 VERKAUFEN {sterne(verkauf_score)}\n"
+                    f"   💰 ${kurs:.2f} | 📰 {sentiment} ({sentiment_score}/100)\n"
+                )
+                starke_verkaufsignale.append(zeile)
+            elif sentiment == "NEGATIV" and sentiment_score < 25:
+                print(f"   ⚠️ Sehr negative News für bestehende Position!")
+                starke_verkaufsignale.append(
+                    f"⚠️ <b>{symbol}</b>: Sehr negative News!\n"
+                    f"   📰 Score: {sentiment_score}/100 – {grund}"
+                )
             else:
                 print(f"   ⏳ HALTEN | G&V: {pct:+.1f}%")
 
@@ -583,23 +631,6 @@ def scan(symbole, krypto=False):
             starke_verkaufsignale.append(
                 f"🚫 <b>{symbol}</b>: Kaufsignal blockiert\n"
                 f"   📰 Negative News ({sentiment_score}/100): {grund}"
-            )
-
-        # Verkaufssignal
-        elif verkauf_score >= 5 and position:
-            order_verkaufen(symbol)
-            zeile = (
-                f"🔴 <b>{symbol}</b> – {verkauf_score}/7 VERKAUFEN {sterne(verkauf_score)}\n"
-                f"   💰 ${kurs:.2f} | 📰 {sentiment} ({sentiment_score}/100)\n"
-            )
-            starke_verkaufsignale.append(zeile)
-
-        # Sentiment allein sehr negativ → Warnung
-        elif sentiment == "NEGATIV" and sentiment_score < 25 and position:
-            print(f"   ⚠️ Sehr negative News für bestehende Position!")
-            starke_verkaufsignale.append(
-                f"⚠️ <b>{symbol}</b>: Sehr negative News!\n"
-                f"   📰 Score: {sentiment_score}/100 – {grund}"
             )
 
         else:
@@ -779,5 +810,5 @@ def main():
     }
     speichere_ergebnisse(ergebnisse)
 
-# Einmal ausführen und fertig!
-main()
+if __name__ == "__main__":
+    main()
