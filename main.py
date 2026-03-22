@@ -1,366 +1,68 @@
-import os
-import json
-import requests
+from datetime import datetime
 import time
-import openai
-from datetime import datetime, timedelta
-from alpaca.trading.client import TradingClient
-from alpaca.trading.requests import MarketOrderRequest
-from alpaca.trading.enums import OrderSide, TimeInForce
-from alpaca.data.historical import StockHistoricalDataClient, CryptoHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest, CryptoBarsRequest
-from alpaca.data.timeframe import TimeFrame
 
-API_KEY = os.environ.get("ALPACA_KEY")
-SECRET_KEY = os.environ.get("ALPACA_SECRET")
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT")
-OPENAI_KEY = os.environ.get("OPENAI_KEY")
-NEWS_API_KEY = os.environ.get("NEWS_KEY")
+import execution
+import indicators
+import market_data
+from config import load_config
+from execution import trading_client
+from reporting import baue_positionen_liste, sende_telegram, speichere_ergebnisse
+from strategies import get_strategy
 
 
-trading_client = TradingClient(API_KEY, SECRET_KEY, paper=True)
-data_client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
-crypto_data_client = CryptoHistoricalDataClient(API_KEY, SECRET_KEY)
-openai_client = openai.OpenAI(api_key=OPENAI_KEY)
+CONFIG = load_config()
 
-AKTIEN = [
-    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN",
-    "META", "TSLA", "AVGO", "JPM", "LLY",
-    "V", "UNH", "XOM", "MA", "COST",
-    "HD", "PG", "JNJ", "NFLX", "ABBV",
-    "BAC", "CRM", "ORCL", "CVX", "MRK",
-    "AMD", "KO", "PEP", "TMO", "ACN",
-    "CSCO", "LIN", "MCD", "ABT", "IBM",
-    "GE", "NOW", "ISRG", "GS", "TXN", "PYPL", 
-    "QCOM", "INTU", "SPGI", "BKNG", "RTX",
-    "CAT", "DHR", "AMGN", "BLK", "SPY"
-]
+get_kursdaten = market_data.get_kursdaten
+get_news = market_data.get_news
+analysiere_sentiment = market_data.analysiere_sentiment
+headline_passt_zu_symbol = market_data.headline_passt_zu_symbol
 
-KRYPTOS = [
-    "BTC/USD", "ETH/USD", "SOL/USD", "DOGE/USD", "AVAX/USD",
-    "LINK/USD", "LTC/USD", "UNI/USD", "AAVE/USD", "SHIB/USD",
-    "BCH/USD", "MATIC/USD", "CRV/USD", "GRT/USD", "BAT/USD",
-    "MKR/USD", "DOT/USD", "XTZ/USD", "SUSHI/USD", "YFI/USD",
-    "ALGO/USD", "ATOM/USD", "FIL/USD", "NEAR/USD", "APE/USD",
-    "SAND/USD", "MANA/USD", "AXS/USD", "CHZ/USD", "ENJ/USD",
-    "COMP/USD", "SNX/USD", "OP/USD", "ARB/USD", "LDO/USD",
-    "IMX/USD", "1INCH/USD", "RPL/USD", "ZRX/USD", "BAL/USD",
-    "UMA/USD", "OCEAN/USD", "ANKR/USD", "STORJ/USD", "RNDR/USD",
-    "NMR/USD", "RLC/USD", "BAND/USD", "CTSI/USD", "SKL/USD"
-]
+berechne_rsi = indicators.berechne_rsi
+berechne_ma = indicators.berechne_ma
+berechne_macd = indicators.berechne_macd
+berechne_bollinger = indicators.berechne_bollinger
+berechne_stochastic = indicators.berechne_stochastic
+berechne_williams = indicators.berechne_williams
+berechne_volume_signal = indicators.berechne_volume_signal
+berechne_trend = indicators.berechne_trend
+berechne_support_resistance = indicators.berechne_support_resistance
+berechne_korrelation = indicators.berechne_korrelation
+korrelation_label = indicators.korrelation_label
 
-MARKT_ASSETS = {
-    "SPY":     ("📈", "S&P 500",      False),
-    "QQQ":     ("💻", "Nasdaq 100",   False),
-    "DIA":     ("🏦", "Dow Jones",    False),
-    "IWM":     ("🏢", "Russell 2000", False),
-    "GLD":     ("🥇", "Gold",         False),
-    "USO":     ("🛢️", "Öl (WTI)",    False),
-    "UUP":     ("💵", "USD Index",    False),
-    "BTC/USD": ("₿",  "Bitcoin",      True),
-}
-
-MENGE = 1
-RSI_PERIODE = 14
-RSI_KAUFEN = 35
-RSI_VERKAUFEN = 65
-STOP_LOSS = 0.03
-TAKE_PROFIT = 0.06
-
-# ─────────────────────────────────────────
-# TELEGRAM
-# ─────────────────────────────────────────
-def sende_telegram(nachricht):
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-        data = {"chat_id": TELEGRAM_CHAT_ID, "text": nachricht, "parse_mode": "HTML"}
-        response = requests.post(url, data=data, timeout=10)
-        response.raise_for_status()
-    except requests.RequestException as exc:
-        print(f"⚠️ Telegram Fehler: {exc}")
-
-# ─────────────────────────────────────────
-# DASHBOARD
-# ─────────────────────────────────────────
-def speichere_ergebnisse(ergebnisse):
-    os.makedirs("docs", exist_ok=True)
-    with open("docs/data.json", "w") as f:
-        json.dump(ergebnisse, f, ensure_ascii=False)
-
-# ─────────────────────────────────────────
-# NEWS & SENTIMENT
-# ─────────────────────────────────────────
-NEWS_API_KEY = os.environ.get("NEWS_KEY")
-
-NEWS_SYMBOLE = [
-    "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN",
-    "META", "TSLA", "JPM", "BTC/USD", "ETH/USD", "PYPL"
-]
-
-NEWS_KEYWORDS = {
-    "AAPL": ["aapl", "apple", "iphone", "ipad", "macbook"],
-    "MSFT": ["msft", "microsoft", "azure", "windows", "xbox"],
-    "NVDA": ["nvda", "nvidia", "geforce", "cuda"],
-    "GOOGL": ["googl", "google", "alphabet", "youtube", "gemini"],
-    "AMZN": ["amzn", "amazon", "aws", "prime"],
-    "META": ["meta", "facebook", "instagram", "whatsapp", "threads"],
-    "TSLA": ["tsla", "tesla", "elon musk", "model 3", "model y"],
-    "JPM": ["jpm", "jpmorgan", "jp morgan", "jamie dimon"],
-    "PYPL": ["pypl", "paypal", "venmo"],
-    "BTC/USD": ["btc", "bitcoin", "btc/usd"],
-    "ETH/USD": ["eth", "ethereum", "ether", "eth/usd"],
-}
+hat_position = execution.hat_position
+order_kaufen = execution.order_kaufen
+order_verkaufen = execution.order_verkaufen
+pruefe_sl_tp = execution.pruefe_sl_tp
 
 
-def headline_passt_zu_symbol(symbol, title):
-    text = (title or "").lower()
-    keywords = NEWS_KEYWORDS.get(symbol, [symbol.replace("/USD", "").lower()])
-    return any(keyword in text for keyword in keywords)
+def berechne_signale(bars, config=CONFIG):
+    strategy = get_strategy(config)
+    return strategy.build_signals(bars, config)
 
 
-def get_news(symbol, limit=5):
-    if symbol not in NEWS_SYMBOLE:
-        return []
-    try:
-        clean = symbol.replace("/USD", "")
-        url = (
-            f"https://newsapi.org/v2/everything"
-            f"?q={clean}+stock"
-            f"&language=en"
-            f"&sortBy=publishedAt"
-            f"&pageSize={limit}"
-            f"&apiKey={NEWS_API_KEY}"
-        )
-        r = requests.get(url, timeout=5)
-        data = r.json()
-
-        if data.get("status") != "ok":
-            print(f"   ⚠️ NewsAPI: {data.get('message')}")
-            return []
-
-        headlines = [
-            a["title"] for a in data.get("articles", [])
-            if a.get("title")
-            and "[Removed]" not in a["title"]
-            and headline_passt_zu_symbol(symbol, a["title"])
-        ]
-        print(f"   📰 {len(headlines)} Headlines gefunden")
-        return headlines[:5]
-
-    except Exception as e:
-        print(f"   ⚠️ News Fehler: {e}")
-        return []
+def confluence_score(signale):
+    strategy = get_strategy(CONFIG)
+    return strategy.score_signals(signale)
 
 
-def analysiere_sentiment(symbol, headlines):
-    if not headlines:
-        return "NEUTRAL", 50, "Keine News verfügbar", []
+def sterne(score, total=7):
+    strategy = get_strategy(CONFIG)
+    return strategy.stars(score, total)
 
-    try:
-        headlines_text = "\n".join([f"- {h}" for h in headlines])
 
-        response = openai_client.chat.completions.create(
-            model="gpt-4o-mini",
-            max_tokens=200,
-            messages=[{
-                "role": "system",
-                "content": "Du bist ein präziser Finanz-Analyst. Antworte NUR mit validem JSON, kein Markdown, keine Erklärungen."
-            }, {
-                "role": "user",
-                "content": f"""Analysiere diese Finanz-Headlines für {symbol}:
+def signal_emoji(kauf, verkauf):
+    strategy = get_strategy(CONFIG)
+    return strategy.summary_signal(kauf, verkauf)
 
-{headlines_text}
 
-Antworte NUR mit diesem JSON Format:
-{{"sentiment": "POSITIV", "score": 75, "grund": "Starke Quartalszahlen erwartet"}}
-
-Sentiment: POSITIV (score 60-100) / NEGATIV (score 0-40) / NEUTRAL (score 41-59)"""
-            }]
-        )
-
-        text = response.choices[0].message.content.strip()
-        text = text.replace("```json", "").replace("```", "").strip()
-        result = json.loads(text)
-
-        sentiment = result.get("sentiment", "NEUTRAL")
-        score = int(result.get("score", 50))
-        grund = result.get("grund", "")
-
-        return sentiment, score, grund, headlines
-
-    except Exception as e:
-        print(f"   ⚠️ Sentiment Fehler: {e}")
-        return "NEUTRAL", 50, "Analyse fehlgeschlagen", headlines
-
-def sentiment_emoji(sentiment):
-    if sentiment == "POSITIV": return "🟢"
-    if sentiment == "NEGATIV": return "🔴"
-    return "⏳"
-
-# ─────────────────────────────────────────
-# KURSDATEN
-# ─────────────────────────────────────────
-def get_kursdaten(symbol, krypto=False):
-    try:
-        if krypto:
-            request = CryptoBarsRequest(
-                symbol_or_symbols=symbol,
-                timeframe=TimeFrame.Day,
-                start=datetime.now() - timedelta(days=120),
-                end=datetime.now() - timedelta(days=1)
-            )
-            bars = crypto_data_client.get_crypto_bars(request)
-        else:
-            request = StockBarsRequest(
-                symbol_or_symbols=symbol,
-                timeframe=TimeFrame.Day,
-                start=datetime.now() - timedelta(days=120),
-                end=datetime.now() - timedelta(days=1)
-            )
-            bars = data_client.get_stock_bars(request)
-        return bars[symbol]
-    except (KeyError, TypeError, ValueError, AttributeError) as exc:
-        print(f"   ⚠️ Kursdaten Fehler für {symbol}: {exc}")
-        return None
-
-# ─────────────────────────────────────────
-# INDIKATOREN
-# ─────────────────────────────────────────
-def berechne_rsi(bars, periode=14):
-    preise = [bar.close for bar in bars]
-    gewinne, verluste = [], []
-    for i in range(1, len(preise)):
-        diff = preise[i] - preise[i-1]
-        if diff > 0:
-            gewinne.append(diff); verluste.append(0)
-        else:
-            gewinne.append(0); verluste.append(abs(diff))
-    avg_g = sum(gewinne[-periode:]) / periode
-    avg_v = sum(verluste[-periode:]) / periode
-    if avg_v == 0:
-        return 100
-    return round(100 - (100 / (1 + avg_g / avg_v)), 2)
-
-def berechne_ma(bars, tage):
-    preise = [bar.close for bar in bars[-tage:]]
-    return sum(preise) / len(preise)
-
-def berechne_macd(bars):
-    preise = [bar.close for bar in bars]
-    def ema(daten, periode):
-        k = 2 / (periode + 1)
-        ema_wert = daten[0]
-        for preis in daten[1:]:
-            ema_wert = preis * k + ema_wert * (1 - k)
-        return ema_wert
-
-    ema12_werte = []
-    ema26_werte = []
-    ema12 = preise[0]
-    ema26 = preise[0]
-    k12 = 2 / (12 + 1)
-    k26 = 2 / (26 + 1)
-
-    for preis in preise:
-        ema12 = preis * k12 + ema12 * (1 - k12)
-        ema26 = preis * k26 + ema26 * (1 - k26)
-        ema12_werte.append(ema12)
-        ema26_werte.append(ema26)
-
-    macd_serie = [ema12_werte[i] - ema26_werte[i] for i in range(len(preise))]
-    macd_linie = macd_serie[-1]
-    signal_linie = ema(macd_serie[-9:], 9)
-    return round(macd_linie, 4), round(signal_linie, 4)
-
-def berechne_bollinger(bars, periode=20):
-    preise = [bar.close for bar in bars[-periode:]]
-    ma = sum(preise) / periode
-    std = (sum((p - ma) ** 2 for p in preise) / periode) ** 0.5
-    return round(ma - 2 * std, 2), round(ma, 2), round(ma + 2 * std, 2)
-
-def berechne_stochastic(bars, periode=14):
-    relevante = bars[-periode:]
-    hoechst = max(bar.high for bar in relevante)
-    tiefst = min(bar.low for bar in relevante)
-    aktuell = bars[-1].close
-    if hoechst == tiefst:
-        return 50
-    return round((aktuell - tiefst) / (hoechst - tiefst) * 100, 2)
-
-def berechne_williams(bars, periode=14):
-    relevante = bars[-periode:]
-    hoechst = max(bar.high for bar in relevante)
-    tiefst = min(bar.low for bar in relevante)
-    aktuell = bars[-1].close
-    if hoechst == tiefst:
-        return -50
-    return round((hoechst - aktuell) / (hoechst - tiefst) * -100, 2)
-
-def berechne_volume_signal(bars):
-    volumes = [bar.volume for bar in bars[-20:]]
-    avg_vol = sum(volumes) / len(volumes)
-    aktuell_vol = bars[-1].volume
-    aktuell_kurs = bars[-1].close
-    vorher_kurs = bars[-2].close
-    kurs_steigt = aktuell_kurs > vorher_kurs
-    vol_hoch = aktuell_vol > avg_vol * 1.2
-    if kurs_steigt and vol_hoch:
-        return "KAUFEN"
-    elif not kurs_steigt and vol_hoch:
-        return "VERKAUFEN"
-    return "NEUTRAL"
-
-def berechne_trend(bars):
-    ma10 = berechne_ma(bars, 10)
-    ma20 = berechne_ma(bars, 20)
-    ma50 = berechne_ma(bars, 50)
-    return ma10 > ma20 > ma50
-
-def berechne_support_resistance(bars, periode=20):
-    recent = bars[-periode:]
-    support = round(min(bar.low for bar in recent), 2)
-    resistance = round(max(bar.high for bar in recent), 2)
-    return support, resistance
-
-# ─────────────────────────────────────────
-# KORRELATION
-# ─────────────────────────────────────────
-def berechne_korrelation(bars1, bars2, tage=30):
-    try:
-        preise1 = [bar.close for bar in bars1[-tage:]]
-        preise2 = [bar.close for bar in bars2[-tage:]]
-        n = min(len(preise1), len(preise2))
-        preise1 = preise1[-n:]
-        preise2 = preise2[-n:]
-        mean1 = sum(preise1) / n
-        mean2 = sum(preise2) / n
-        zaehler = sum((preise1[i] - mean1) * (preise2[i] - mean2) for i in range(n))
-        nenner1 = (sum((p - mean1) ** 2 for p in preise1)) ** 0.5
-        nenner2 = (sum((p - mean2) ** 2 for p in preise2)) ** 0.5
-        if nenner1 * nenner2 == 0:
-            return 0
-        return round(zaehler / (nenner1 * nenner2), 2)
-    except (TypeError, ValueError, ZeroDivisionError, AttributeError):
-        return 0
-
-def korrelation_label(k):
-    if k >= 0.7:   return "🟢 Stark positiv"
-    if k >= 0.4:   return "🟡 Mittel positiv"
-    if k >= 0.1:   return "⬜ Schwach positiv"
-    if k >= -0.1:  return "⬜ Neutral"
-    if k >= -0.4:  return "🟡 Schwach negativ"
-    if k >= -0.7:  return "🟠 Mittel negativ"
-    return "🔴 Stark negativ"
-
-def erkenne_markt_regime(bars_dict):
+def erkenne_markt_regime(bars_dict, config=CONFIG):
     regime = []
     empfehlungen = []
     warnungen = []
 
-    if "SPY" in bars_dict and bars_dict["SPY"]:
+    if bars_dict.get("SPY"):
         spy_trend = berechne_trend(bars_dict["SPY"])
-        spy_rsi = berechne_rsi(bars_dict["SPY"])
+        spy_rsi = berechne_rsi(bars_dict["SPY"], config["strategy"]["rsi_period"])
         if spy_trend and spy_rsi < 65:
             regime.append("📈 Bullish Aktienmarkt")
             empfehlungen.append("✅ Gutes Umfeld für Aktien-Käufe")
@@ -368,7 +70,7 @@ def erkenne_markt_regime(bars_dict):
             regime.append("📉 Bearish Aktienmarkt")
             empfehlungen.append("⚠️ Vorsicht bei Aktien-Käufen")
 
-    if "UUP" in bars_dict and bars_dict["UUP"]:
+    if bars_dict.get("UUP"):
         uup_kurs = bars_dict["UUP"][-1].close
         uup_ma = berechne_ma(bars_dict["UUP"], 20)
         if uup_kurs > uup_ma:
@@ -378,17 +80,15 @@ def erkenne_markt_regime(bars_dict):
             regime.append("💵 USD schwach")
             empfehlungen.append("✅ USD schwach → Rückenwind für Gold & BTC")
 
-    if "GLD" in bars_dict and bars_dict["GLD"]:
-        if berechne_trend(bars_dict["GLD"]):
-            regime.append("🥇 Gold im Aufwärtstrend")
-            empfehlungen.append("⚠️ Gold steigt → Risikoaversion im Markt")
+    if bars_dict.get("GLD") and berechne_trend(bars_dict["GLD"]):
+        regime.append("🥇 Gold im Aufwärtstrend")
+        empfehlungen.append("⚠️ Gold steigt → Risikoaversion im Markt")
 
-    if "USO" in bars_dict and bars_dict["USO"]:
-        if berechne_trend(bars_dict["USO"]) and berechne_rsi(bars_dict["USO"]) > 60:
-            regime.append("🛢️ Öl überkauft")
-            empfehlungen.append("⚠️ Öl stark → Inflationsdruck steigt")
+    if bars_dict.get("USO") and berechne_trend(bars_dict["USO"]) and berechne_rsi(bars_dict["USO"]) > 60:
+        regime.append("🛢️ Öl überkauft")
+        empfehlungen.append("⚠️ Öl stark → Inflationsdruck steigt")
 
-    if "BTC/USD" in bars_dict and bars_dict["BTC/USD"]:
+    if bars_dict.get("BTC/USD"):
         if berechne_trend(bars_dict["BTC/USD"]):
             regime.append("₿ BTC im Aufwärtstrend")
             empfehlungen.append("✅ BTC bullish → Altcoins könnten folgen")
@@ -396,225 +96,105 @@ def erkenne_markt_regime(bars_dict):
             regime.append("₿ BTC im Abwärtstrend")
             empfehlungen.append("⚠️ BTC bearish → Vorsicht bei Altcoins")
 
-    if "SPY" in bars_dict and "BTC/USD" in bars_dict:
-        if bars_dict["SPY"] and bars_dict["BTC/USD"]:
-            korr = berechne_korrelation(bars_dict["SPY"], bars_dict["BTC/USD"])
-            if korr < -0.5:
-                warnungen.append(f"🚨 BTC läuft gegen S&P500 (Korr: {korr})")
-            elif korr > 0.8:
-                warnungen.append(f"📊 BTC & S&P500 sehr synchron (Korr: {korr})")
+    if bars_dict.get("SPY") and bars_dict.get("BTC/USD"):
+        korr = berechne_korrelation(bars_dict["SPY"], bars_dict["BTC/USD"])
+        if korr < -0.5:
+            warnungen.append(f"🚨 BTC läuft gegen S&P500 (Korr: {korr})")
+        elif korr > 0.8:
+            warnungen.append(f"📊 BTC & S&P500 sehr synchron (Korr: {korr})")
 
-    if "GLD" in bars_dict and "UUP" in bars_dict:
-        if bars_dict["GLD"] and bars_dict["UUP"]:
-            korr = berechne_korrelation(bars_dict["GLD"], bars_dict["UUP"])
-            if korr > 0.4:
-                warnungen.append(f"🚨 Gold & USD steigen zusammen (Korr: {korr})")
+    if bars_dict.get("GLD") and bars_dict.get("UUP"):
+        korr = berechne_korrelation(bars_dict["GLD"], bars_dict["UUP"])
+        if korr > 0.4:
+            warnungen.append(f"🚨 Gold & USD steigen zusammen (Korr: {korr})")
 
-    if "USO" in bars_dict and "GLD" in bars_dict:
-        if bars_dict["USO"] and bars_dict["GLD"]:
-            korr = berechne_korrelation(bars_dict["USO"], bars_dict["GLD"])
-            if korr > 0.6:
-                warnungen.append(f"⚠️ Öl & Gold korrelieren stark (Korr: {korr})")
+    if bars_dict.get("USO") and bars_dict.get("GLD"):
+        korr = berechne_korrelation(bars_dict["USO"], bars_dict["GLD"])
+        if korr > 0.6:
+            warnungen.append(f"⚠️ Öl & Gold korrelieren stark (Korr: {korr})")
 
     return regime, empfehlungen, warnungen
 
+
 def korrelations_analyse(bars_dict):
     paare = [
-        ("SPY",     "BTC/USD", "S&P500 ↔ BTC"),
-        ("SPY",     "GLD",     "S&P500 ↔ Gold"),
-        ("GLD",     "UUP",     "Gold ↔ USD"),
-        ("UUP",     "BTC/USD", "USD ↔ BTC"),
-        ("USO",     "GLD",     "Öl ↔ Gold"),
-        ("USO",     "SPY",     "Öl ↔ S&P500"),
+        ("SPY", "BTC/USD", "S&P500 ↔ BTC"),
+        ("SPY", "GLD", "S&P500 ↔ Gold"),
+        ("GLD", "UUP", "Gold ↔ USD"),
+        ("UUP", "BTC/USD", "USD ↔ BTC"),
+        ("USO", "GLD", "Öl ↔ Gold"),
+        ("USO", "SPY", "Öl ↔ S&P500"),
         ("BTC/USD", "ETH/USD", "BTC ↔ ETH"),
-        ("QQQ",     "BTC/USD", "Nasdaq ↔ BTC"),
+        ("QQQ", "BTC/USD", "Nasdaq ↔ BTC"),
     ]
     ergebnisse = []
     for sym1, sym2, label in paare:
-        if sym1 in bars_dict and sym2 in bars_dict:
-            if bars_dict[sym1] and bars_dict[sym2]:
-                k = berechne_korrelation(bars_dict[sym1], bars_dict[sym2])
-                ergebnisse.append({
-                    "label": label,
-                    "korrelation": k,
-                    "beschreibung": korrelation_label(k)
-                })
+        if bars_dict.get(sym1) and bars_dict.get(sym2):
+            korr = berechne_korrelation(bars_dict[sym1], bars_dict[sym2])
+            ergebnisse.append({"label": label, "korrelation": korr, "beschreibung": korrelation_label(korr)})
     return ergebnisse
 
-# ─────────────────────────────────────────
-# SIGNAL BERECHNUNG
-# ─────────────────────────────────────────
-def berechne_signale(bars):
-    kurs = bars[-1].close
-    signale = {}
 
-    rsi = berechne_rsi(bars, RSI_PERIODE)
-    if rsi < RSI_KAUFEN:
-        signale["RSI"] = ("KAUFEN", f"RSI={rsi}")
-    elif rsi > RSI_VERKAUFEN:
-        signale["RSI"] = ("VERKAUFEN", f"RSI={rsi}")
-    else:
-        signale["RSI"] = ("NEUTRAL", f"RSI={rsi}")
-
-    trend = berechne_trend(bars)
-    if trend:
-        signale["MA"] = ("KAUFEN", "MA10>MA20>MA50")
-    else:
-        signale["MA"] = ("VERKAUFEN", "Kein Aufwärtstrend")
-
-    macd, signal = berechne_macd(bars)
-    if macd > signal:
-        signale["MACD"] = ("KAUFEN", f"MACD={macd}")
-    else:
-        signale["MACD"] = ("VERKAUFEN", f"MACD={macd}")
-
-    bb_low, bb_mid, bb_high = berechne_bollinger(bars)
-    if kurs < bb_low:
-        signale["Bollinger"] = ("KAUFEN", f"Unter Band ${bb_low}")
-    elif kurs > bb_high:
-        signale["Bollinger"] = ("VERKAUFEN", f"Über Band ${bb_high}")
-    else:
-        signale["Bollinger"] = ("NEUTRAL", "Im Band")
-
-    stoch = berechne_stochastic(bars)
-    if stoch < 20:
-        signale["Stochastic"] = ("KAUFEN", f"Stoch={stoch}")
-    elif stoch > 80:
-        signale["Stochastic"] = ("VERKAUFEN", f"Stoch={stoch}")
-    else:
-        signale["Stochastic"] = ("NEUTRAL", f"Stoch={stoch}")
-
-    williams = berechne_williams(bars)
-    if williams < -80:
-        signale["Williams"] = ("KAUFEN", f"W%R={williams}")
-    elif williams > -20:
-        signale["Williams"] = ("VERKAUFEN", f"W%R={williams}")
-    else:
-        signale["Williams"] = ("NEUTRAL", f"W%R={williams}")
-
-    vol_signal = berechne_volume_signal(bars)
-    signale["Volume"] = (vol_signal, "Vol>120% Avg" if vol_signal != "NEUTRAL" else "Normales Vol")
-
-    return signale, kurs
-
-def confluence_score(signale):
-    kaufen = sum(1 for s, _ in signale.values() if s == "KAUFEN")
-    verkaufen = sum(1 for s, _ in signale.values() if s == "VERKAUFEN")
-    return kaufen, verkaufen
-
-def sterne(score, total=7):
-    filled = round(score / total * 5)
-    return "⭐" * filled + "☆" * (5 - filled)
-
-def signal_emoji(kauf, verkauf):
-    if kauf >= 5:    return "🟢 KAUFEN"
-    if verkauf >= 5: return "🔴 VERKAUFEN"
-    if kauf >= 3:    return "🟡 NEUTRAL+"
-    return "⏳ NEUTRAL"
-
-# ─────────────────────────────────────────
-# ORDERS
-# ─────────────────────────────────────────
-def hat_position(symbol):
-    try:
-        pos = trading_client.get_open_position(symbol)
-        return True, float(pos.avg_entry_price), float(pos.qty)
-    except Exception:
-        return False, 0, 0
-
-def order_kaufen(symbol, kurs):
-    sl = round(kurs * (1 - STOP_LOSS), 2)
-    tp = round(kurs * (1 + TAKE_PROFIT), 2)
-    order = MarketOrderRequest(
-        symbol=symbol, qty=MENGE,
-        side=OrderSide.BUY, time_in_force=TimeInForce.GTC
-    )
-    trading_client.submit_order(order)
-    print(f"   ✅ GEKAUFT @ ${kurs:.2f}")
-    return sl, tp
-
-def order_verkaufen(symbol, qty):
-    order = MarketOrderRequest(
-        symbol=symbol, qty=qty,
-        side=OrderSide.SELL, time_in_force=TimeInForce.GTC
-    )
-    trading_client.submit_order(order)
-    print(f"   🔴 VERKAUFT {qty}")
-
-def pruefe_sl_tp(symbol, kurs, einstieg):
-    pct = (kurs - einstieg) / einstieg * 100
-    if pct <= -STOP_LOSS * 100:
-        return "verkaufen", pct
-    if pct >= TAKE_PROFIT * 100:
-        return "verkaufen", pct
-    return "halten", pct
-
-# ─────────────────────────────────────────
-# HAUPT SCAN
-# ─────────────────────────────────────────
-def scan(symbole, krypto=False):
+def scan(symbole, krypto=False, config=CONFIG):
     starke_kaufsignale = []
     starke_verkaufsignale = []
     news_zusammenfassung = []
+    strategy = get_strategy(config)
 
     typ = "KRYPTO" if krypto else "AKTIEN"
-    print(f"\n{'='*45}")
+    print(f"\n{'=' * 45}")
     print(f"{typ} SCAN – {datetime.now().strftime('%H:%M:%S')}")
-    print(f"{'='*45}")
+    print(f"{'=' * 45}")
 
     for symbol in symbole:
         print(f"\n📊 {symbol}")
         bars = get_kursdaten(symbol, krypto)
-
         if bars is None or len(bars) < 50:
-            print(f"   ⚠️ Nicht genug Daten")
+            print("   ⚠️ Nicht genug Daten")
             continue
 
-        signale, kurs = berechne_signale(bars)
-        kauf_score, verkauf_score = confluence_score(signale)
+        analyse = strategy.evaluate(bars, config)
+        signale = analyse["signale"]
+        kurs = analyse["kurs"]
+        kauf_score = analyse["kauf_score"]
+        verkauf_score = analyse["verkauf_score"]
         position, einstieg, qty = hat_position(symbol)
 
-        # News & Sentiment
-        headlines = get_news(symbol)
+        headlines = get_news(symbol, config)
         sentiment, sentiment_score, grund, _ = analysiere_sentiment(symbol, headlines)
         print(f"   Kurs: ${kurs:.2f} | 🟢 {kauf_score}/7 | 📰 {sentiment} ({sentiment_score})")
 
-        # News für Website speichern
         if headlines:
             news_zusammenfassung.append({
                 "symbol": symbol,
                 "sentiment": sentiment,
                 "score": sentiment_score,
                 "grund": grund,
-                "headlines": headlines[:3]
+                "headlines": headlines[:3],
             })
 
-        # Stop Loss / Take Profit prüfen
         if position:
-            aktion, pct = pruefe_sl_tp(symbol, kurs, einstieg)
+            aktion, pct = pruefe_sl_tp(kurs, einstieg, config)
             if aktion == "verkaufen":
-                order_verkaufen(symbol, qty)
+                order_verkaufen(symbol, qty, config)
                 grund_sl = "🛑 Stop Loss" if pct < 0 else "🎯 Take Profit"
                 starke_verkaufsignale.append(f"🔴 {symbol}: {grund_sl} ({pct:+.1f}%)")
             elif verkauf_score >= 5:
-                order_verkaufen(symbol, qty)
-                zeile = (
+                order_verkaufen(symbol, qty, config)
+                starke_verkaufsignale.append(
                     f"🔴 <b>{symbol}</b> – {verkauf_score}/7 VERKAUFEN {sterne(verkauf_score)}\n"
                     f"   💰 ${kurs:.2f} | 📰 {sentiment} ({sentiment_score}/100)\n"
                 )
-                starke_verkaufsignale.append(zeile)
             elif sentiment == "NEGATIV" and sentiment_score < 25:
-                print(f"   ⚠️ Sehr negative News für bestehende Position!")
+                print("   ⚠️ Sehr negative News für bestehende Position!")
                 starke_verkaufsignale.append(
                     f"⚠️ <b>{symbol}</b>: Sehr negative News!\n"
                     f"   📰 Score: {sentiment_score}/100 – {grund}"
                 )
             else:
                 print(f"   ⏳ HALTEN | G&V: {pct:+.1f}%")
-
-        # Kaufsignal: Technisch UND Sentiment positiv
         elif kauf_score >= 5 and sentiment in ["POSITIV", "NEUTRAL"]:
-            sl, tp = order_kaufen(symbol, kurs)
+            sl, tp = order_kaufen(symbol, kurs, config)
             zeile = (
                 f"🟢 <b>{symbol}</b> – {kauf_score}/7 KAUFEN {sterne(kauf_score)}\n"
                 f"   💰 ${kurs:.2f} | SL: ${sl} | TP: ${tp}\n"
@@ -624,45 +204,37 @@ def scan(symbole, krypto=False):
                 emoji = "✅" if sig == "KAUFEN" else "❌" if sig == "VERKAUFEN" else "➖"
                 zeile += f"   {emoji} {ind}: {sig} ({detail})\n"
             starke_kaufsignale.append(zeile)
-
-        # Kaufsignal blockiert wegen negativen News
         elif kauf_score >= 5 and sentiment == "NEGATIV":
             print(f"   🚫 Kaufsignal blockiert – Negative News ({sentiment_score}/100): {grund}")
             starke_verkaufsignale.append(
                 f"🚫 <b>{symbol}</b>: Kaufsignal blockiert\n"
                 f"   📰 Negative News ({sentiment_score}/100): {grund}"
             )
-
         else:
-            print(f"   ⏳ Kein starkes Signal")
+            print("   ⏳ Kein starkes Signal")
 
         time.sleep(0.5)
 
     return starke_kaufsignale, starke_verkaufsignale, news_zusammenfassung
 
-# ─────────────────────────────────────────
-# MARKTÜBERSICHT
-# ─────────────────────────────────────────
-def markt_uebersicht():
-    print("\n" + "="*45)
+
+def markt_uebersicht(config=CONFIG):
+    strategy = get_strategy(config)
+    print("\n" + "=" * 45)
     print(f"🌍 MARKTÜBERSICHT – {datetime.now().strftime('%H:%M:%S')}")
-    print("="*45)
+    print("=" * 45)
 
     markt_liste = []
     bars_dict = {}
-
-    for symbol, (emoji, name, krypto) in MARKT_ASSETS.items():
-        bars = get_kursdaten(symbol, krypto)
-        bars_dict[symbol] = bars
-
+    for symbol, meta in config["market_assets"].items():
+        bars_dict[symbol] = get_kursdaten(symbol, meta["krypto"])
     bars_dict["ETH/USD"] = get_kursdaten("ETH/USD", krypto=True)
 
-    regime, empfehlungen, warnungen = erkenne_markt_regime(bars_dict)
+    regime, empfehlungen, warnungen = erkenne_markt_regime(bars_dict, config)
     korrelationen = korrelations_analyse(bars_dict)
 
     nachricht = f"🌍 <b>MARKTÜBERSICHT</b> – {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
     nachricht += "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-
     abschnitte = {
         "📈 BÖRSENINDIZES": ["SPY", "QQQ", "DIA", "IWM"],
         "🛍️ ROHSTOFFE & FX": ["GLD", "USO", "UUP"],
@@ -672,85 +244,76 @@ def markt_uebersicht():
     for titel, symbole in abschnitte.items():
         nachricht += f"\n<b>{titel}</b>\n"
         for symbol in symbole:
-            emoji, name, krypto = MARKT_ASSETS[symbol]
+            meta = config["market_assets"][symbol]
             bars = bars_dict.get(symbol)
-
             if bars is None or len(bars) < 50:
-                nachricht += f"{emoji} {name}: ⚠️ Keine Daten\n"
+                nachricht += f"{meta['emoji']} {meta['name']}: ⚠️ Keine Daten\n"
                 continue
 
             kurs = bars[-1].close
-            rsi = berechne_rsi(bars, RSI_PERIODE)
-            signale, _ = berechne_signale(bars)
-            kauf_score, verkauf_score = confluence_score(signale)
+            rsi = berechne_rsi(bars, config["strategy"]["rsi_period"])
+            analyse = strategy.evaluate(bars, config)
+            kauf_score = analyse["kauf_score"]
+            verkauf_score = analyse["verkauf_score"]
             support, resistance = berechne_support_resistance(bars)
             trend = berechne_trend(bars)
-            sig = signal_emoji(kauf_score, verkauf_score)
+            sig = analyse["summary_signal"]
 
-            print(f"{emoji} {name}: ${kurs:.2f} | RSI {rsi} | {sig}")
-
+            print(f"{meta['emoji']} {meta['name']}: ${kurs:.2f} | RSI {rsi} | {sig}")
             nachricht += (
-                f"{emoji} <b>{name}</b>: ${kurs:.2f}\n"
+                f"{meta['emoji']} <b>{meta['name']}</b>: ${kurs:.2f}\n"
                 f"   RSI: {rsi} | Trend: {'📈' if trend else '📉'} | {sig}\n"
                 f"   🛡️ Support: ${support} | 🎯 Resist: ${resistance}\n"
             )
-
             markt_liste.append({
                 "symbol": symbol,
-                "name": name,
-                "emoji": emoji,
+                "name": meta["name"],
+                "emoji": meta["emoji"],
                 "kurs": str(round(kurs, 2)),
                 "rsi": str(rsi),
                 "trend": "📈" if trend else "📉",
                 "signal": sig,
                 "support": str(support),
-                "resistance": str(resistance)
+                "resistance": str(resistance),
             })
-
         nachricht += "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
 
     nachricht += "\n🌡️ <b>MARKTREGIME</b>\n"
-    for r in regime:
-        nachricht += f"  {r}\n"
+    for item in regime:
+        nachricht += f"  {item}\n"
 
     if warnungen:
         nachricht += "\n🚨 <b>WARNUNGEN</b>\n"
-        for w in warnungen:
-            nachricht += f"  {w}\n"
+        for item in warnungen:
+            nachricht += f"  {item}\n"
 
     nachricht += "\n💡 <b>EMPFEHLUNGEN</b>\n"
-    for e in empfehlungen:
-        nachricht += f"  {e}\n"
+    for item in empfehlungen:
+        nachricht += f"  {item}\n"
 
     nachricht += "\n🔗 <b>KORRELATIONEN</b>\n"
-    for k in korrelationen:
-        nachricht += f"  {k['label']}: {k['korrelation']} {k['beschreibung']}\n"
+    for item in korrelationen:
+        nachricht += f"  {item['label']}: {item['korrelation']} {item['beschreibung']}\n"
 
-    sende_telegram(nachricht)
+    sende_telegram(nachricht, config)
     print("📱 Marktübersicht gesendet!")
-
     return markt_liste, regime, empfehlungen, warnungen, korrelationen
 
-# ─────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────
-def main():
-    kauf_aktien, verkauf_aktien, news_aktien = scan(AKTIEN, krypto=False)
-    kauf_krypto, verkauf_krypto, news_krypto = scan(KRYPTOS, krypto=True)
-    markt_liste, regime, empfehlungen, warnungen, korrelationen = markt_uebersicht()
+
+def main(config=None):
+    runtime_config = config or load_config()
+    kauf_aktien, verkauf_aktien, news_aktien = scan(runtime_config["universes"]["stocks"], False, runtime_config)
+    kauf_krypto, verkauf_krypto, news_krypto = scan(runtime_config["universes"]["crypto"], True, runtime_config)
+    markt_liste, regime, empfehlungen, warnungen, korrelationen = markt_uebersicht(runtime_config)
     account = trading_client.get_account()
 
     nachricht = f"📊 <b>SCAN ABGESCHLOSSEN</b> – {datetime.now().strftime('%H:%M:%S')}\n\n"
-
     if kauf_aktien:
-        nachricht += "🟢 <b>STARKE KAUFSIGNALE – AKTIEN</b>\n"
-        nachricht += "\n".join(kauf_aktien)
+        nachricht += "🟢 <b>STARKE KAUFSIGNALE – AKTIEN</b>\n" + "\n".join(kauf_aktien)
     if kauf_krypto:
-        nachricht += "\n🟢 <b>STARKE KAUFSIGNALE – KRYPTO</b>\n"
-        nachricht += "\n".join(kauf_krypto)
+        nachricht += "\n🟢 <b>STARKE KAUFSIGNALE – KRYPTO</b>\n" + "\n".join(kauf_krypto)
     if verkauf_aktien or verkauf_krypto:
-        nachricht += "\n🔴 <b>VERKAUFS & WARNUNGEN</b>\n"
-        nachricht += "\n".join(verkauf_aktien + verkauf_krypto)
+        nachricht += "\n🔴 <b>VERKAUFS & WARNUNGEN</b>\n" + "\n".join(verkauf_aktien + verkauf_krypto)
     if not kauf_aktien and not kauf_krypto and not verkauf_aktien and not verkauf_krypto:
         nachricht += "⏳ Keine starken Signale gefunden\n"
 
@@ -766,49 +329,38 @@ def main():
             pl_emoji = "🟢" if pl >= 0 else "🔴"
             nachricht += (
                 f"{pl_emoji} <b>{pos.symbol}</b>: {pos.qty} Stk.\n"
-                f"   Ø Kaufpreis: ${float(pos.avg_entry_price):.2f} | "
-                f"Kurs: ${float(pos.current_price):.2f}\n"
+                f"   Ø Kaufpreis: ${float(pos.avg_entry_price):.2f} | Kurs: ${float(pos.current_price):.2f}\n"
                 f"   G&V: {pl_emoji} ${pl:+.2f} ({pl_pct:+.2f}%)\n"
             )
     else:
         nachricht += "\n\n📦 <b>MEIN BESTAND</b>\nKeine offenen Positionen"
 
-    print("\n" + "="*45)
+    print("\n" + "=" * 45)
     print("TELEGRAM ZUSAMMENFASSUNG:")
     print(nachricht)
-    print("="*45)
+    print("=" * 45)
 
-    sende_telegram(nachricht)
-
-    # Positionen für Website
-    positionen_liste = []
-    for pos in positionen:
-        pl = float(pos.unrealized_pl)
-        pl_pct = float(pos.unrealized_plpc) * 100
-        positionen_liste.append({
-            "symbol": pos.symbol,
-            "qty": str(pos.qty),
-            "einstieg": str(float(pos.avg_entry_price)),
-            "kurs": str(float(pos.current_price)),
-            "pl": str(pl),
-            "pl_pct": str(pl_pct)
-        })
-
+    sende_telegram(nachricht, runtime_config)
     ergebnisse = {
         "zeitpunkt": datetime.now().strftime("%d.%m.%Y %H:%M"),
         "portfolio": str(account.portfolio_value),
         "kontostand": str(account.cash),
         "kaufsignale": kauf_aktien + kauf_krypto,
         "verkaufsignale": verkauf_aktien + verkauf_krypto,
-        "positionen": positionen_liste,
+        "positionen": baue_positionen_liste(positionen),
         "markt": markt_liste,
         "regime": regime,
         "empfehlungen": empfehlungen,
         "warnungen": warnungen,
         "korrelationen": korrelationen,
-        "news": news_aktien + news_krypto
+        "news": news_aktien + news_krypto,
+        "config": {
+            "trading_mode": runtime_config["trading_mode"],
+            "strategy": runtime_config["strategy"]["name"],
+        },
     }
-    speichere_ergebnisse(ergebnisse)
+    speichere_ergebnisse(ergebnisse, runtime_config)
+
 
 if __name__ == "__main__":
     main()

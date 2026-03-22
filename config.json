@@ -1,0 +1,10 @@
+{
+  "trading_mode": "paper",
+  "reporting": {
+    "telegram_enabled": true,
+    "dashboard_enabled": true
+  },
+  "strategy": {
+    "name": "confluence_v1"
+  }
+}
