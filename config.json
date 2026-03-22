@@ -5,6 +5,6 @@
     "dashboard_enabled": true
   },
   "strategy": {
-    "name": "confluence_v1"
+    "name": "mean_reversion_v1"
   }
 }
