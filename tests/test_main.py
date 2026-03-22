@@ -72,6 +72,11 @@ class Bar:
 
 
 class MainTests(unittest.TestCase):
+    def test_strategy_loader_laed_confluence_v1(self):
+        strategy = main.get_strategy(main.CONFIG)
+
+        self.assertEqual(strategy.name, "confluence_v1")
+
     def test_headline_passt_zu_symbol_filtert_irrelevante_titel(self):
         self.assertTrue(main.headline_passt_zu_symbol("PYPL", "PayPal launches new checkout features", main.CONFIG))
         self.assertFalse(main.headline_passt_zu_symbol("PYPL", "Coinbase launches 24/7 stock perps", main.CONFIG))
@@ -101,13 +106,24 @@ class MainTests(unittest.TestCase):
 
     def test_scan_verkauft_gesamte_positionsgroesse_bei_verkaufssignal(self):
         bars = [Bar(close=float(i), high=float(i) + 1, low=float(i) - 1, volume=100 + i) for i in range(1, 60)]
+        analyse = {
+            "signale": {"MA": ("VERKAUFEN", "Kein Aufwärtstrend")},
+            "kurs": 59.0,
+            "kauf_score": 1,
+            "verkauf_score": 5,
+            "summary_signal": "🔴 VERKAUFEN",
+        }
 
         with patch.object(main, "get_kursdaten", return_value=bars), \
              patch.object(main, "hat_position", return_value=(True, 100.0, 3.5)), \
              patch.object(main, "get_news", return_value=[]), \
              patch.object(main, "analysiere_sentiment", return_value=("NEUTRAL", 50, "Keine News verfügbar", [])), \
              patch.object(main, "pruefe_sl_tp", return_value=("halten", 1.0)), \
-             patch.object(main, "confluence_score", return_value=(1, 5)), \
+             patch("main.get_strategy", return_value=types.SimpleNamespace(
+                 name="confluence_v1",
+                 evaluate=lambda *_args, **_kwargs: analyse,
+                 stars=lambda score, total=7: "⭐⭐⭐⭐☆",
+             )), \
              patch.object(main, "order_verkaufen") as order_verkaufen:
             _, verkauf, _ = main.scan(["AAPL"], krypto=False, config=main.CONFIG)
 

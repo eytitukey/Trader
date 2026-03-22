@@ -7,6 +7,7 @@ import market_data
 from config import load_config
 from execution import trading_client
 from reporting import baue_positionen_liste, sende_telegram, speichere_ergebnisse
+from strategies import get_strategy
 
 
 CONFIG = load_config()
@@ -35,72 +36,23 @@ pruefe_sl_tp = execution.pruefe_sl_tp
 
 
 def berechne_signale(bars, config=CONFIG):
-    kurs = bars[-1].close
-    signale = {}
-    strategy_cfg = config["strategy"]
-
-    rsi = berechne_rsi(bars, strategy_cfg["rsi_period"])
-    if rsi < strategy_cfg["rsi_buy"]:
-        signale["RSI"] = ("KAUFEN", f"RSI={rsi}")
-    elif rsi > strategy_cfg["rsi_sell"]:
-        signale["RSI"] = ("VERKAUFEN", f"RSI={rsi}")
-    else:
-        signale["RSI"] = ("NEUTRAL", f"RSI={rsi}")
-
-    trend = berechne_trend(bars)
-    signale["MA"] = ("KAUFEN", "MA10>MA20>MA50") if trend else ("VERKAUFEN", "Kein Aufwärtstrend")
-
-    macd, signal = berechne_macd(bars)
-    signale["MACD"] = ("KAUFEN", f"MACD={macd}") if macd > signal else ("VERKAUFEN", f"MACD={macd}")
-
-    bb_low, _, bb_high = berechne_bollinger(bars)
-    if kurs < bb_low:
-        signale["Bollinger"] = ("KAUFEN", f"Unter Band ${bb_low}")
-    elif kurs > bb_high:
-        signale["Bollinger"] = ("VERKAUFEN", f"Über Band ${bb_high}")
-    else:
-        signale["Bollinger"] = ("NEUTRAL", "Im Band")
-
-    stoch = berechne_stochastic(bars)
-    if stoch < 20:
-        signale["Stochastic"] = ("KAUFEN", f"Stoch={stoch}")
-    elif stoch > 80:
-        signale["Stochastic"] = ("VERKAUFEN", f"Stoch={stoch}")
-    else:
-        signale["Stochastic"] = ("NEUTRAL", f"Stoch={stoch}")
-
-    williams = berechne_williams(bars)
-    if williams < -80:
-        signale["Williams"] = ("KAUFEN", f"W%R={williams}")
-    elif williams > -20:
-        signale["Williams"] = ("VERKAUFEN", f"W%R={williams}")
-    else:
-        signale["Williams"] = ("NEUTRAL", f"W%R={williams}")
-
-    vol_signal = berechne_volume_signal(bars)
-    signale["Volume"] = (vol_signal, "Vol>120% Avg" if vol_signal != "NEUTRAL" else "Normales Vol")
-    return signale, kurs
+    strategy = get_strategy(config)
+    return strategy.build_signals(bars, config)
 
 
 def confluence_score(signale):
-    kaufen = sum(1 for s, _ in signale.values() if s == "KAUFEN")
-    verkaufen = sum(1 for s, _ in signale.values() if s == "VERKAUFEN")
-    return kaufen, verkaufen
+    strategy = get_strategy(CONFIG)
+    return strategy.score_signals(signale)
 
 
 def sterne(score, total=7):
-    filled = round(score / total * 5)
-    return "⭐" * filled + "☆" * (5 - filled)
+    strategy = get_strategy(CONFIG)
+    return strategy.stars(score, total)
 
 
 def signal_emoji(kauf, verkauf):
-    if kauf >= 5:
-        return "🟢 KAUFEN"
-    if verkauf >= 5:
-        return "🔴 VERKAUFEN"
-    if kauf >= 3:
-        return "🟡 NEUTRAL+"
-    return "⏳ NEUTRAL"
+    strategy = get_strategy(CONFIG)
+    return strategy.summary_signal(kauf, verkauf)
 
 
 def erkenne_markt_regime(bars_dict, config=CONFIG):
@@ -187,6 +139,7 @@ def scan(symbole, krypto=False, config=CONFIG):
     starke_kaufsignale = []
     starke_verkaufsignale = []
     news_zusammenfassung = []
+    strategy = get_strategy(config)
 
     typ = "KRYPTO" if krypto else "AKTIEN"
     print(f"\n{'=' * 45}")
@@ -200,8 +153,11 @@ def scan(symbole, krypto=False, config=CONFIG):
             print("   ⚠️ Nicht genug Daten")
             continue
 
-        signale, kurs = berechne_signale(bars, config)
-        kauf_score, verkauf_score = confluence_score(signale)
+        analyse = strategy.evaluate(bars, config)
+        signale = analyse["signale"]
+        kurs = analyse["kurs"]
+        kauf_score = analyse["kauf_score"]
+        verkauf_score = analyse["verkauf_score"]
         position, einstieg, qty = hat_position(symbol)
 
         headlines = get_news(symbol, config)
@@ -263,6 +219,7 @@ def scan(symbole, krypto=False, config=CONFIG):
 
 
 def markt_uebersicht(config=CONFIG):
+    strategy = get_strategy(config)
     print("\n" + "=" * 45)
     print(f"🌍 MARKTÜBERSICHT – {datetime.now().strftime('%H:%M:%S')}")
     print("=" * 45)
@@ -295,11 +252,12 @@ def markt_uebersicht(config=CONFIG):
 
             kurs = bars[-1].close
             rsi = berechne_rsi(bars, config["strategy"]["rsi_period"])
-            signale, _ = berechne_signale(bars, config)
-            kauf_score, verkauf_score = confluence_score(signale)
+            analyse = strategy.evaluate(bars, config)
+            kauf_score = analyse["kauf_score"]
+            verkauf_score = analyse["verkauf_score"]
             support, resistance = berechne_support_resistance(bars)
             trend = berechne_trend(bars)
-            sig = signal_emoji(kauf_score, verkauf_score)
+            sig = analyse["summary_signal"]
 
             print(f"{meta['emoji']} {meta['name']}: ${kurs:.2f} | RSI {rsi} | {sig}")
             nachricht += (
