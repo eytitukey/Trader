@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from datetime import datetime, timedelta
 
 import openai
@@ -17,6 +18,11 @@ OPENAI_KEY = os.environ.get("OPENAI_KEY")
 data_client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 crypto_data_client = CryptoHistoricalDataClient(API_KEY, SECRET_KEY)
 openai_client = openai.OpenAI(api_key=OPENAI_KEY)
+CRYPTO_SYMBOL_PATTERN = re.compile(r"^[A-Z]+/[A-Z]+$")
+
+
+def ist_gueltiges_krypto_symbol(symbol):
+    return bool(CRYPTO_SYMBOL_PATTERN.match(symbol))
 
 
 def headline_passt_zu_symbol(symbol, title, config):
@@ -96,6 +102,9 @@ Sentiment: POSITIV (score 60-100) / NEGATIV (score 0-40) / NEUTRAL (score 41-59)
 def get_kursdaten(symbol, krypto=False):
     try:
         if krypto:
+            if not ist_gueltiges_krypto_symbol(symbol):
+                print(f"   ⚠️ Krypto-Symbol übersprungen: {symbol}")
+                return None
             request = CryptoBarsRequest(
                 symbol_or_symbols=symbol,
                 timeframe=TimeFrame.Day,
@@ -112,6 +121,6 @@ def get_kursdaten(symbol, krypto=False):
             )
             bars = data_client.get_stock_bars(request)
         return bars[symbol]
-    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+    except Exception as exc:
         print(f"   ⚠️ Kursdaten Fehler für {symbol}: {exc}")
         return None

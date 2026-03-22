@@ -104,6 +104,11 @@ class MainTests(unittest.TestCase):
         self.assertIsInstance(signal, float)
         self.assertNotEqual(macd, signal)
 
+    def test_invalides_krypto_symbol_wird_vor_api_call_uebersprungen(self):
+        bars = main.market_data.get_kursdaten("1INCH/USD", krypto=True)
+
+        self.assertIsNone(bars)
+
     def test_scan_verkauft_gesamte_positionsgroesse_bei_verkaufssignal(self):
         bars = [Bar(close=float(i), high=float(i) + 1, low=float(i) - 1, volume=100 + i) for i in range(1, 60)]
         analyse = {
