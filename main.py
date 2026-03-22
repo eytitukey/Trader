@@ -34,7 +34,7 @@ AKTIEN = [
     "BAC", "CRM", "ORCL", "CVX", "MRK",
     "AMD", "KO", "PEP", "TMO", "ACN",
     "CSCO", "LIN", "MCD", "ABT", "IBM",
-    "GE", "NOW", "ISRG", "GS", "TXN",
+    "GE", "NOW", "ISRG", "GS", "TXN", "PYPL", 
     "QCOM", "INTU", "SPGI", "BKNG", "RTX",
     "CAT", "DHR", "AMGN", "BLK", "SPY"
 ]
@@ -96,7 +96,7 @@ NEWS_API_KEY = os.environ.get("NEWS_KEY")
 
 NEWS_SYMBOLE = [
     "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN",
-    "META", "TSLA", "JPM", "BTC/USD", "ETH/USD"
+    "META", "TSLA", "JPM", "BTC/USD", "ETH/USD", "PYPL"
 ]
 
 
