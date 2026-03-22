@@ -13,7 +13,6 @@ def install_fake_dependencies():
     trading_enums = types.ModuleType("alpaca.trading.enums")
     data = types.ModuleType("alpaca.data")
     data_historical = types.ModuleType("alpaca.data.historical")
-    data_historical_news = types.ModuleType("alpaca.data.historical.news")
     data_requests = types.ModuleType("alpaca.data.requests")
     data_timeframe = types.ModuleType("alpaca.data.timeframe")
     openai = types.ModuleType("openai")
@@ -23,10 +22,6 @@ def install_fake_dependencies():
             pass
 
     class DummyHistoricalClient:
-        def __init__(self, *args, **kwargs):
-            pass
-
-    class DummyNewsClient:
         def __init__(self, *args, **kwargs):
             pass
 
@@ -47,10 +42,8 @@ def install_fake_dependencies():
     trading_enums.TimeInForce = types.SimpleNamespace(GTC="GTC")
     data_historical.StockHistoricalDataClient = DummyHistoricalClient
     data_historical.CryptoHistoricalDataClient = DummyHistoricalClient
-    data_historical_news.NewsClient = DummyNewsClient
     data_requests.StockBarsRequest = DummyRequest
     data_requests.CryptoBarsRequest = DummyRequest
-    data_requests.NewsRequest = DummyRequest
     data_timeframe.TimeFrame = DummyTimeFrame
     openai.OpenAI = DummyOpenAI
 
@@ -61,7 +54,6 @@ def install_fake_dependencies():
     sys.modules["alpaca.trading.enums"] = trading_enums
     sys.modules["alpaca.data"] = data
     sys.modules["alpaca.data.historical"] = data_historical
-    sys.modules["alpaca.data.historical.news"] = data_historical_news
     sys.modules["alpaca.data.requests"] = data_requests
     sys.modules["alpaca.data.timeframe"] = data_timeframe
     sys.modules["openai"] = openai
@@ -81,8 +73,8 @@ class Bar:
 
 class MainTests(unittest.TestCase):
     def test_headline_passt_zu_symbol_filtert_irrelevante_titel(self):
-        self.assertTrue(main.headline_passt_zu_symbol("PYPL", "PayPal launches new checkout features"))
-        self.assertFalse(main.headline_passt_zu_symbol("PYPL", "Coinbase launches 24/7 stock perps"))
+        self.assertTrue(main.headline_passt_zu_symbol("PYPL", "PayPal launches new checkout features", main.CONFIG))
+        self.assertFalse(main.headline_passt_zu_symbol("PYPL", "Coinbase launches 24/7 stock perps", main.CONFIG))
 
     def test_get_news_entfernt_irrelevante_headlines(self):
         payload = {
@@ -93,8 +85,8 @@ class MainTests(unittest.TestCase):
             ],
         }
 
-        with patch.object(main.requests, "get", return_value=types.SimpleNamespace(json=lambda: payload)):
-            headlines = main.get_news("PYPL")
+        with patch.object(main.market_data.requests, "get", return_value=types.SimpleNamespace(json=lambda: payload)):
+            headlines = main.get_news("PYPL", main.CONFIG)
 
         self.assertEqual(headlines, ["PayPal launches new checkout features"])
 
@@ -117,9 +109,9 @@ class MainTests(unittest.TestCase):
              patch.object(main, "pruefe_sl_tp", return_value=("halten", 1.0)), \
              patch.object(main, "confluence_score", return_value=(1, 5)), \
              patch.object(main, "order_verkaufen") as order_verkaufen:
-            _, verkauf, _ = main.scan(["AAPL"], krypto=False)
+            _, verkauf, _ = main.scan(["AAPL"], krypto=False, config=main.CONFIG)
 
-        order_verkaufen.assert_called_once_with("AAPL", 3.5)
+        order_verkaufen.assert_called_once_with("AAPL", 3.5, main.CONFIG)
         self.assertEqual(len(verkauf), 1)
 
 
