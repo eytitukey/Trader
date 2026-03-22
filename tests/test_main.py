@@ -1,6 +1,7 @@
 import importlib
 import json
 import tempfile
+import argparse
 import sys
 import types
 import unittest
@@ -66,6 +67,7 @@ install_fake_dependencies()
 main = importlib.import_module("main")
 reporting = importlib.import_module("reporting")
 backtest = importlib.import_module("backtest")
+run_backtest_cli = importlib.import_module("run_backtest")
 execution = importlib.import_module("execution")
 
 
@@ -207,6 +209,65 @@ class MainTests(unittest.TestCase):
         self.assertGreaterEqual(result["trade_count"], 2)
         self.assertIn("final_equity", result)
         self.assertIn("max_drawdown_pct", result)
+
+    def test_run_backtest_laed_historische_daten_und_kennzeichnet_asset_type(self):
+        bars = [Bar(close=float(i), high=float(i) + 1, low=float(i) - 1, volume=100 + i) for i in range(1, 80)]
+        config = dict(main.CONFIG)
+        config["strategy"] = dict(main.CONFIG["strategy"])
+        config["strategy"]["name"] = "mean_reversion_v1"
+
+        with patch("backtest.get_historical_bars", return_value=bars), \
+             patch("backtest.backtest_strategy", return_value={"mode": "backtest", "symbol": "BTC/USD"}):
+            result = backtest.run_backtest("BTC/USD", "2024-01-01", "2024-03-01", config, initial_cash=1000, krypto=True)
+
+        self.assertEqual(result["asset_type"], "crypto")
+        self.assertEqual(result["start"], "2024-01-01")
+        self.assertEqual(result["end"], "2024-03-01")
+        self.assertEqual(result["config"]["strategy"], "mean_reversion_v1")
+
+    def test_speichere_backtest_history_schreibt_run_record(self):
+        result = {
+            "run_id": "backtest-1",
+            "mode": "backtest",
+            "symbol": "AAPL",
+            "asset_type": "stock",
+            "start": "2024-01-01",
+            "end": "2024-02-01",
+            "initial_cash": 1000.0,
+            "final_equity": 1120.0,
+            "return_pct": 12.0,
+            "max_drawdown_pct": 4.5,
+            "trade_count": 4,
+            "closed_trade_count": 2,
+            "win_rate": 50.0,
+            "trades": [{"type": "BUY"}],
+            "config": {"strategy": "mean_reversion_v1", "trading_mode": "backtest"},
+        }
+
+        with patch.object(backtest, "speichere_run_history") as save_history:
+            backtest.speichere_backtest_history(result)
+
+        record = save_history.call_args.args[0]
+        self.assertEqual(record["mode"], "backtest")
+        self.assertEqual(record["backtest"]["symbol"], "AAPL")
+        self.assertEqual(record["metrics"]["return_pct"], 12.0)
+
+    def test_run_backtest_cli_parst_argumente(self):
+        with patch.object(sys, "argv", [
+            "run_backtest.py",
+            "--symbol", "AAPL",
+            "--start", "2024-01-01",
+            "--end", "2024-03-01",
+            "--strategy", "confluence_v1",
+            "--initial-cash", "1500",
+            "--save-history",
+        ]):
+            args = run_backtest_cli.parse_args()
+
+        self.assertEqual(args.symbol, "AAPL")
+        self.assertEqual(args.strategy, "confluence_v1")
+        self.assertEqual(args.initial_cash, 1500.0)
+        self.assertTrue(args.save_history)
 
 
 if __name__ == "__main__":

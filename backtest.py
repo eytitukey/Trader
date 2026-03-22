@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+from market_data import get_historical_bars
+from reporting import speichere_run_history
 from strategies import get_strategy
 
 
@@ -89,3 +91,47 @@ def backtest_strategy(symbol, bars, config, initial_cash=10000.0):
         "trades": trades,
         "equity_curve": equity_curve,
     }
+
+
+def run_backtest(symbol, start, end, config, initial_cash=10000.0, krypto=False):
+    bars = get_historical_bars(symbol, start, end, krypto=krypto)
+    if not bars or len(bars) < 60:
+        raise ValueError(f"Nicht genug historische Daten für {symbol}")
+
+    result = backtest_strategy(symbol, bars, config, initial_cash=initial_cash)
+    result["start"] = str(start)
+    result["end"] = str(end)
+    result["asset_type"] = "crypto" if krypto else "stock"
+    result["config"] = {
+        "strategy": config["strategy"]["name"],
+        "trading_mode": config.get("trading_mode", "backtest"),
+    }
+    return result
+
+
+def speichere_backtest_history(result):
+    speichere_run_history({
+        "run_id": result["run_id"],
+        "mode": result["mode"],
+        "zeitpunkt": datetime.now(UTC).strftime("%d.%m.%Y %H:%M"),
+        "portfolio": str(result["final_equity"]),
+        "kontostand": str(result["final_equity"]),
+        "metrics": {
+            "return_pct": result["return_pct"],
+            "max_drawdown_pct": result["max_drawdown_pct"],
+            "trade_count": result["trade_count"],
+            "closed_trade_count": result["closed_trade_count"],
+            "win_rate": result["win_rate"],
+        },
+        "config": result["config"],
+        "scan_results": [],
+        "backtest": {
+            "symbol": result["symbol"],
+            "asset_type": result["asset_type"],
+            "start": result["start"],
+            "end": result["end"],
+            "initial_cash": result["initial_cash"],
+            "final_equity": result["final_equity"],
+            "trades": result["trades"],
+        },
+    })

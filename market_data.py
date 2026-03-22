@@ -1,13 +1,17 @@
 import json
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
-import openai
 import requests
 from alpaca.data.historical import CryptoHistoricalDataClient, StockHistoricalDataClient
 from alpaca.data.requests import CryptoBarsRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
+
+try:
+    import openai
+except ImportError:
+    openai = None
 
 
 API_KEY = os.environ.get("ALPACA_KEY")
@@ -17,7 +21,7 @@ OPENAI_KEY = os.environ.get("OPENAI_KEY")
 
 data_client = StockHistoricalDataClient(API_KEY, SECRET_KEY)
 crypto_data_client = CryptoHistoricalDataClient(API_KEY, SECRET_KEY)
-openai_client = openai.OpenAI(api_key=OPENAI_KEY)
+openai_client = openai.OpenAI(api_key=OPENAI_KEY) if openai and OPENAI_KEY else None
 CRYPTO_SYMBOL_PATTERN = re.compile(r"^[A-Z]+/[A-Z]+$")
 
 
@@ -66,6 +70,8 @@ def get_news(symbol, config, limit=5):
 def analysiere_sentiment(symbol, headlines):
     if not headlines:
         return "NEUTRAL", 50, "Keine News verfügbar", []
+    if openai_client is None:
+        return "NEUTRAL", 50, "OpenAI nicht verfügbar", headlines
 
     try:
         headlines_text = "\n".join([f"- {headline}" for headline in headlines])
@@ -123,4 +129,38 @@ def get_kursdaten(symbol, krypto=False):
         return bars[symbol]
     except Exception as exc:
         print(f"   ⚠️ Kursdaten Fehler für {symbol}: {exc}")
+        return None
+
+
+def get_historical_bars(symbol, start, end, krypto=False):
+    try:
+        start_dt = start if isinstance(start, datetime) else datetime.fromisoformat(str(start))
+        end_dt = end if isinstance(end, datetime) else datetime.fromisoformat(str(end))
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=UTC)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=UTC)
+
+        if krypto:
+            if not ist_gueltiges_krypto_symbol(symbol):
+                print(f"   ⚠️ Krypto-Symbol übersprungen: {symbol}")
+                return None
+            request = CryptoBarsRequest(
+                symbol_or_symbols=symbol,
+                timeframe=TimeFrame.Day,
+                start=start_dt,
+                end=end_dt,
+            )
+            bars = crypto_data_client.get_crypto_bars(request)
+        else:
+            request = StockBarsRequest(
+                symbol_or_symbols=symbol,
+                timeframe=TimeFrame.Day,
+                start=start_dt,
+                end=end_dt,
+            )
+            bars = data_client.get_stock_bars(request)
+        return bars[symbol]
+    except Exception as exc:
+        print(f"   ⚠️ Historische Daten Fehler für {symbol}: {exc}")
         return None
