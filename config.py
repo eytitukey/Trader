@@ -43,7 +43,7 @@ DEFAULT_CONFIG = {
             "ALGO/USD", "ATOM/USD", "FIL/USD", "NEAR/USD", "APE/USD",
             "SAND/USD", "MANA/USD", "AXS/USD", "CHZ/USD", "ENJ/USD",
             "COMP/USD", "SNX/USD", "OP/USD", "ARB/USD", "LDO/USD",
-            "IMX/USD", "1INCH/USD", "RPL/USD", "ZRX/USD", "BAL/USD",
+            "IMX/USD", "RPL/USD", "ZRX/USD", "BAL/USD",
             "UMA/USD", "OCEAN/USD", "ANKR/USD", "STORJ/USD", "RNDR/USD",
             "NMR/USD", "RLC/USD", "BAND/USD", "CTSI/USD", "SKL/USD",
         ],
