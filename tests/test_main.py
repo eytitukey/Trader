@@ -66,6 +66,7 @@ install_fake_dependencies()
 main = importlib.import_module("main")
 reporting = importlib.import_module("reporting")
 backtest = importlib.import_module("backtest")
+execution = importlib.import_module("execution")
 
 
 class Bar:
@@ -78,7 +79,10 @@ class Bar:
 
 class MainTests(unittest.TestCase):
     def test_strategy_loader_laed_confluence_v1(self):
-        strategy = main.get_strategy(main.CONFIG)
+        config = dict(main.CONFIG)
+        config["strategy"] = dict(main.CONFIG["strategy"])
+        config["strategy"]["name"] = "confluence_v1"
+        strategy = main.get_strategy(config)
 
         self.assertEqual(strategy.name, "confluence_v1")
 
@@ -122,6 +126,20 @@ class MainTests(unittest.TestCase):
         bars = main.market_data.get_kursdaten("1INCH/USD", krypto=True)
 
         self.assertIsNone(bars)
+
+    def test_order_kaufen_nutzt_fuer_krypto_mindestens_10_usd_notional(self):
+        config = dict(main.CONFIG)
+        config["risk"] = dict(main.CONFIG["risk"])
+        config["risk"]["order_qty"] = 1
+
+        with patch.object(execution, "MarketOrderRequest") as order_request, \
+             patch.object(execution.trading_client, "submit_order", create=True):
+            execution.order_kaufen("DOGE/USD", 0.2, config)
+
+        kwargs = order_request.call_args.kwargs
+        self.assertEqual(kwargs["symbol"], "DOGE/USD")
+        self.assertEqual(kwargs["notional"], 10.0)
+        self.assertNotIn("qty", kwargs)
 
     def test_scan_verkauft_gesamte_positionsgroesse_bei_verkaufssignal(self):
         bars = [Bar(close=float(i), high=float(i) + 1, low=float(i) - 1, volume=100 + i) for i in range(1, 60)]

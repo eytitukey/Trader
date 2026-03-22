@@ -19,6 +19,10 @@ def hat_position(symbol):
         return False, 0, 0
 
 
+def ist_krypto_symbol(symbol):
+    return "/" in symbol
+
+
 def order_kaufen(symbol, kurs, config):
     sl = round(kurs * (1 - config["risk"]["stop_loss"]), 2)
     tp = round(kurs * (1 + config["risk"]["take_profit"]), 2)
@@ -26,14 +30,24 @@ def order_kaufen(symbol, kurs, config):
         print(f"   🧪 KAUF übersprungen (trading_mode=off) @ ${kurs:.2f}")
         return sl, tp
 
-    order = MarketOrderRequest(
-        symbol=symbol,
-        qty=config["risk"]["order_qty"],
-        side=OrderSide.BUY,
-        time_in_force=TimeInForce.GTC,
-    )
-    trading_client.submit_order(order)
-    print(f"   ✅ GEKAUFT @ ${kurs:.2f}")
+    order_kwargs = {
+        "symbol": symbol,
+        "side": OrderSide.BUY,
+        "time_in_force": TimeInForce.GTC,
+    }
+
+    if ist_krypto_symbol(symbol):
+        notional = max(config["risk"]["order_qty"] * kurs, 10.0)
+        order_kwargs["notional"] = round(notional, 2)
+    else:
+        order_kwargs["qty"] = config["risk"]["order_qty"]
+
+    order = MarketOrderRequest(**order_kwargs)
+    try:
+        trading_client.submit_order(order)
+        print(f"   ✅ GEKAUFT @ ${kurs:.2f}")
+    except Exception as exc:
+        print(f"   ⚠️ Kauf fehlgeschlagen für {symbol}: {exc}")
     return sl, tp
 
 
