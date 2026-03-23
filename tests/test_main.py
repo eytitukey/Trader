@@ -136,9 +136,11 @@ class MainTests(unittest.TestCase):
 
         with patch.object(execution, "MarketOrderRequest") as order_request, \
              patch.object(execution.trading_client, "submit_order", create=True):
-            execution.order_kaufen("DOGE/USD", 0.2, config)
+            success, _, _, error = execution.order_kaufen("DOGE/USD", 0.2, config)
 
         kwargs = order_request.call_args.kwargs
+        self.assertTrue(success)
+        self.assertIsNone(error)
         self.assertEqual(kwargs["symbol"], "DOGE/USD")
         self.assertEqual(kwargs["notional"], 10.0)
         self.assertNotIn("qty", kwargs)
@@ -165,13 +167,69 @@ class MainTests(unittest.TestCase):
                  should_buy=lambda kauf, verkauf: kauf >= 5,
                  should_sell=lambda kauf, verkauf: verkauf >= 5,
              )), \
-             patch.object(main, "order_verkaufen") as order_verkaufen:
+             patch.object(main, "order_verkaufen", return_value=(True, None)) as order_verkaufen:
             _, verkauf, _, scan_results = main.scan(["AAPL"], krypto=False, config=main.CONFIG)
 
         order_verkaufen.assert_called_once_with("AAPL", 3.5, main.CONFIG)
         self.assertEqual(len(verkauf), 1)
         self.assertEqual(scan_results[0]["action"], "SELL_SIGNAL")
         self.assertEqual(scan_results[0]["strategy"], "confluence_v1")
+
+    def test_scan_markiert_kauf_nur_bei_erfolgreicher_order(self):
+        bars = [Bar(close=float(i), high=float(i) + 1, low=float(i) - 1, volume=100 + i) for i in range(1, 60)]
+        analyse = {
+            "signale": {"RSI": ("KAUFEN", "RSI=20")},
+            "kurs": 59.0,
+            "kauf_score": 3,
+            "verkauf_score": 0,
+            "summary_signal": "🟢 KAUFEN",
+        }
+
+        with patch.object(main, "get_kursdaten", return_value=bars), \
+             patch.object(main, "hat_position", return_value=(False, 0.0, 0.0)), \
+             patch.object(main, "get_news", return_value=[]), \
+             patch.object(main, "analysiere_sentiment", return_value=("NEUTRAL", 50, "Keine News verfügbar", [])), \
+             patch("main.get_strategy", return_value=types.SimpleNamespace(
+                 name="mean_reversion_v1",
+                 evaluate=lambda *_args, **_kwargs: analyse,
+                 stars=lambda score, total=4: "⭐⭐⭐⭐☆",
+                 should_buy=lambda kauf, verkauf: kauf >= 3,
+                 should_sell=lambda kauf, verkauf: verkauf >= 3,
+             )), \
+             patch.object(main, "order_kaufen", return_value=(False, 57.23, 62.54, "insufficient buying power")):
+            kauf, verkauf, _, scan_results = main.scan(["MSFT"], krypto=False, config=main.CONFIG)
+
+        self.assertEqual(kauf, [])
+        self.assertEqual(scan_results[0]["action"], "BUY_FAILED")
+        self.assertIn("Kauf fehlgeschlagen", verkauf[0])
+
+    def test_scan_markiert_verkauf_nur_bei_erfolgreicher_order(self):
+        bars = [Bar(close=float(i), high=float(i) + 1, low=float(i) - 1, volume=100 + i) for i in range(1, 60)]
+        analyse = {
+            "signale": {"MA": ("VERKAUFEN", "Kein Aufwärtstrend")},
+            "kurs": 59.0,
+            "kauf_score": 1,
+            "verkauf_score": 5,
+            "summary_signal": "🔴 VERKAUFEN",
+        }
+
+        with patch.object(main, "get_kursdaten", return_value=bars), \
+             patch.object(main, "hat_position", return_value=(True, 100.0, 3.5)), \
+             patch.object(main, "get_news", return_value=[]), \
+             patch.object(main, "analysiere_sentiment", return_value=("NEUTRAL", 50, "Keine News verfügbar", [])), \
+             patch.object(main, "pruefe_sl_tp", return_value=("halten", 1.0)), \
+             patch("main.get_strategy", return_value=types.SimpleNamespace(
+                 name="confluence_v1",
+                 evaluate=lambda *_args, **_kwargs: analyse,
+                 stars=lambda score, total=7: "⭐⭐⭐⭐☆",
+                 should_buy=lambda kauf, verkauf: kauf >= 5,
+                 should_sell=lambda kauf, verkauf: verkauf >= 5,
+             )), \
+             patch.object(main, "order_verkaufen", return_value=(False, "order rejected")):
+            _, verkauf, _, scan_results = main.scan(["AAPL"], krypto=False, config=main.CONFIG)
+
+        self.assertEqual(scan_results[0]["action"], "SELL_FAILED")
+        self.assertIn("Verkauf fehlgeschlagen", verkauf[0])
 
     def test_speichere_run_history_schreibt_json_liste(self):
         with tempfile.TemporaryDirectory() as tmpdir:

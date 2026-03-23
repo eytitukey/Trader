@@ -214,17 +214,33 @@ def scan(symbole, krypto=False, config=CONFIG):
         if position:
             aktion, pct = pruefe_sl_tp(kurs, einstieg, config)
             if aktion == "verkaufen":
-                order_verkaufen(symbol, qty, config)
+                verkauft, fehler = order_verkaufen(symbol, qty, config)
                 grund_sl = "🛑 Stop Loss" if pct < 0 else "🎯 Take Profit"
-                starke_verkaufsignale.append(f"🔴 {symbol}: {grund_sl} ({pct:+.1f}%)")
-                action = "SELL_SLTP"
+                if verkauft:
+                    starke_verkaufsignale.append(f"🔴 {symbol}: {grund_sl} ({pct:+.1f}%)")
+                    action = "SELL_SLTP"
+                else:
+                    starke_verkaufsignale.append(
+                        f"⚠️ <b>{symbol}</b>: Verkauf fehlgeschlagen\n"
+                        f"   Grund: {fehler}\n"
+                        f"   Anlass: {grund_sl} ({pct:+.1f}%)"
+                    )
+                    action = "SELL_FAILED"
             elif strategy.should_sell(kauf_score, verkauf_score):
-                order_verkaufen(symbol, qty, config)
-                starke_verkaufsignale.append(
-                    f"🔴 <b>{symbol}</b> – {verkauf_score} VERKAUFEN {sterne(verkauf_score, config=config)}\n"
-                    f"   💰 ${kurs:.2f} | 📰 {sentiment} ({sentiment_score}/100)\n"
-                )
-                action = "SELL_SIGNAL"
+                verkauft, fehler = order_verkaufen(symbol, qty, config)
+                if verkauft:
+                    starke_verkaufsignale.append(
+                        f"🔴 <b>{symbol}</b> – {verkauf_score} VERKAUFEN {sterne(verkauf_score, config=config)}\n"
+                        f"   💰 ${kurs:.2f} | 📰 {sentiment} ({sentiment_score}/100)\n"
+                    )
+                    action = "SELL_SIGNAL"
+                else:
+                    starke_verkaufsignale.append(
+                        f"⚠️ <b>{symbol}</b>: Verkauf fehlgeschlagen\n"
+                        f"   Grund: {fehler}\n"
+                        f"   Signal: {verkauf_score} VERKAUFEN {sterne(verkauf_score, config=config)}\n"
+                    )
+                    action = "SELL_FAILED"
             elif sentiment == "NEGATIV" and sentiment_score < 25:
                 print("   ⚠️ Sehr negative News für bestehende Position!")
                 starke_verkaufsignale.append(
@@ -236,17 +252,26 @@ def scan(symbole, krypto=False, config=CONFIG):
                 print(f"   ⏳ HALTEN | G&V: {pct:+.1f}%")
                 action = "HOLD_POSITION"
         elif strategy.should_buy(kauf_score, verkauf_score) and sentiment in ["POSITIV", "NEUTRAL"]:
-            sl, tp = order_kaufen(symbol, kurs, config)
-            zeile = (
-                f"🟢 <b>{symbol}</b> – {kauf_score} KAUFEN {sterne(kauf_score, config=config)}\n"
-                f"   💰 ${kurs:.2f} | SL: ${sl} | TP: ${tp}\n"
-                f"   📰 News: {sentiment} ({sentiment_score}/100) – {grund}\n"
-            )
-            for ind, (sig, detail) in signale.items():
-                emoji = "✅" if sig == "KAUFEN" else "❌" if sig == "VERKAUFEN" else "➖"
-                zeile += f"   {emoji} {ind}: {sig} ({detail})\n"
-            starke_kaufsignale.append(zeile)
-            action = "BUY_SIGNAL"
+            gekauft, sl, tp, fehler = order_kaufen(symbol, kurs, config)
+            if gekauft:
+                zeile = (
+                    f"🟢 <b>{symbol}</b> – {kauf_score} KAUFEN {sterne(kauf_score, config=config)}\n"
+                    f"   💰 ${kurs:.2f} | SL: ${sl} | TP: ${tp}\n"
+                    f"   📰 News: {sentiment} ({sentiment_score}/100) – {grund}\n"
+                )
+                for ind, (sig, detail) in signale.items():
+                    emoji = "✅" if sig == "KAUFEN" else "❌" if sig == "VERKAUFEN" else "➖"
+                    zeile += f"   {emoji} {ind}: {sig} ({detail})\n"
+                starke_kaufsignale.append(zeile)
+                action = "BUY_SIGNAL"
+            else:
+                starke_verkaufsignale.append(
+                    f"⚠️ <b>{symbol}</b>: Kauf fehlgeschlagen\n"
+                    f"   Grund: {fehler}\n"
+                    f"   Signal: {kauf_score} KAUFEN {sterne(kauf_score, config=config)}\n"
+                    f"   💰 ${kurs:.2f} | 📰 {sentiment} ({sentiment_score}/100) – {grund}"
+                )
+                action = "BUY_FAILED"
         elif strategy.should_buy(kauf_score, verkauf_score) and sentiment == "NEGATIV":
             print(f"   🚫 Kaufsignal blockiert – Negative News ({sentiment_score}/100): {grund}")
             starke_verkaufsignale.append(

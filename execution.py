@@ -28,7 +28,7 @@ def order_kaufen(symbol, kurs, config):
     tp = round(kurs * (1 + config["risk"]["take_profit"]), 2)
     if config["trading_mode"] == "off":
         print(f"   🧪 KAUF übersprungen (trading_mode=off) @ ${kurs:.2f}")
-        return sl, tp
+        return True, sl, tp, "trading_mode=off"
 
     order_kwargs = {
         "symbol": symbol,
@@ -46,15 +46,16 @@ def order_kaufen(symbol, kurs, config):
     try:
         trading_client.submit_order(order)
         print(f"   ✅ GEKAUFT @ ${kurs:.2f}")
+        return True, sl, tp, None
     except Exception as exc:
         print(f"   ⚠️ Kauf fehlgeschlagen für {symbol}: {exc}")
-    return sl, tp
+        return False, sl, tp, str(exc)
 
 
 def order_verkaufen(symbol, qty, config):
     if config["trading_mode"] == "off":
         print(f"   🧪 VERKAUF übersprungen (trading_mode=off) qty={qty}")
-        return
+        return True, "trading_mode=off"
 
     order = MarketOrderRequest(
         symbol=symbol,
@@ -62,8 +63,13 @@ def order_verkaufen(symbol, qty, config):
         side=OrderSide.SELL,
         time_in_force=TimeInForce.GTC,
     )
-    trading_client.submit_order(order)
-    print(f"   🔴 VERKAUFT {qty}")
+    try:
+        trading_client.submit_order(order)
+        print(f"   🔴 VERKAUFT {qty}")
+        return True, None
+    except Exception as exc:
+        print(f"   ⚠️ Verkauf fehlgeschlagen für {symbol}: {exc}")
+        return False, str(exc)
 
 
 def pruefe_sl_tp(kurs, einstieg, config):
